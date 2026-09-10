@@ -30,6 +30,22 @@
 
 로컬 증거는 무시된 `artifacts/`의 `build-0.3.0-final.log`, `inno-*-0.3.0.log`, `self-update-timeout-0.3.0.log`, `self-update-installed-0.3.0.json`에 남깁니다. 개인 설정과 연결 정보는 Git에 포함하지 않습니다.
 
+## 공개 릴리스 및 실제 전송
+
+- 공개 저장소: [yunhyok/ProgramManager](https://github.com/yunhyok/ProgramManager), 기본 브랜치 `main`.
+- [v0.3.0 릴리스](https://github.com/yunhyok/ProgramManager/releases/tag/v0.3.0)는 `4cada227a8d1cf3167ed7a75b96c094ecea41bd6`에서 생성됐으며 [GitHub 빌드·릴리스 작업](https://github.com/yunhyok/ProgramManager/actions/runs/34441766168)이 성공했습니다.
+- CI는 실제 화면 배율과 100% 모사를 검사했습니다. 작은 가상 화면에 담을 수 없는 125/150/200/250% 모사는 각각 SKIP 사유를 기록했습니다. 로컬에서는 두 런타임 모두 생략 없이 전체 배율을 통과했습니다.
+- 공개 GitHub에 인증 없이 접속해 실제 설치 파일을 받았고, 인터넷 HTTP 요청을 실패시키는 클라이언트에서도 인증된 로컬 호스트를 통해 같은 파일을 받았습니다. 두 파일의 제품·버전 정보와 SHA-256을 검사했습니다. 두 번째 물리 PC를 사용한 시험은 아닙니다.
+- Windows 7용 실제 릴리스 설치 파일도 별도로 다운로드해 제품·버전·해시를 검사했습니다.
+- 현재 설치 버전 0.3.0은 업데이트 대상으로 제안되지 않았습니다. 설치된 앱의 실제 접근성 트리에서도 제목 `Program Manager 0.3.0`, 등록 19개, 업데이트 완료 상태를 확인했습니다.
+
+| 공개 파일 | 바이트 | SHA-256 |
+| --- | ---: | --- |
+| ProgramManager-Setup-0.3.0.exe | 51059132 | `03b1bb3e7d116da91e45f6a2669155b1954b3d4771c6d32a38002ea20a1e8f05` |
+| ProgramManager-Setup-0.3.0-win7.exe | 2419391 | `53a3a3ed96626c7623f5fe5e8cdf65524c2330c54a0c47489e0c449665b03771` |
+
+공개 `SHA256SUMS.txt`도 다운로드해 위 검증 결과와 비교했습니다. CI 설치 파일은 CI 런타임과 컴파일러로 빌드하므로 앞서 설치한 로컬 빌드 파일과 바이트가 다를 수 있습니다. 공개 파일 전송 증거는 `artifacts/self-update-live/live-update-verification.json`에 남깁니다.
+
 ## 확인 범위
 
 실제 Windows 7 PC와 두 번째 물리 PC에서 설치한 결과는 아닙니다. Windows 7 대상은 .NET Framework 4.8 빌드·실행과 별도 설치 파일로 검사했습니다. Windows 알림 정책이 실제 말풍선을 표시하는지와 설치 중 강제 디스크 오류 뒤 파일 복구는 실기기 시험에 포함하지 않았습니다. 새 버전 알림 조건·기록과 트레이 메뉴는 실행 검사로 확인했습니다.
