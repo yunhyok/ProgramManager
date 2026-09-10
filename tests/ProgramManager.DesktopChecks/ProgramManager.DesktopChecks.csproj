@@ -7,15 +7,17 @@
     <UseWindowsForms>true</UseWindowsForms>
     <Nullable>enable</Nullable>
     <ApplicationIcon>../../src/ProgramManager/app.ico</ApplicationIcon>
+    <ApplicationManifest Condition="'$(TargetFramework)' == 'net48'">../../src/ProgramManager/app.manifest</ApplicationManifest>
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
     <GenerateBindingRedirectsOutputType>true</GenerateBindingRedirectsOutputType>
+    <UiSourceDirectory Condition="'$(UiSourceDirectory)' == ''">../../src/ProgramManager</UiSourceDirectory>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/ProgramManager.Core/ProgramManager.Core.csproj" />
     <Compile Include="../../src/ProgramManager/AppState.cs" Link="AppState.cs" />
-    <Compile Include="../../src/ProgramManager/MainForm.cs" Link="MainForm.cs" />
-    <Compile Include="../../src/ProgramManager/Dialogs.cs" Link="Dialogs.cs" />
-    <Compile Include="../../src/ProgramManager/Ui.cs" Link="Ui.cs" />
+    <Compile Include="$(UiSourceDirectory)/MainForm.cs" Link="MainForm.cs" />
+    <Compile Include="$(UiSourceDirectory)/Dialogs.cs" Link="Dialogs.cs" />
+    <Compile Include="$(UiSourceDirectory)/Ui.cs" Link="Ui.cs" />
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="All" Condition="'$(TargetFramework)' == 'net48'" />
   </ItemGroup>
 </Project>

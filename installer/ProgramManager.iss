@@ -3,7 +3,7 @@
   #error Inno Setup 6.3 or later in the 6.x series is required.
 #endif
 #define AppName "Program Manager"
-#define AppVersion "0.1.0"
+#define AppVersion "0.1.1"
 #define AppExe "ProgramManager.exe"
 #ifdef Legacy
   #define PublishDir "..\artifacts\publish\win7"
@@ -68,7 +68,7 @@ begin
   Result := IsDotNetInstalled(net48, 0);
   if not Result then
     SuppressibleMsgBox(
-      'Program Manager 0.1.0에는 .NET Framework 4.8이 필요합니다.' + #13#10 +
+      'Program Manager {#AppVersion}에는 .NET Framework 4.8이 필요합니다.' + #13#10 +
       'Microsoft에서 .NET Framework 4.8을 설치한 뒤 다시 실행하세요.' + #13#10 +
       '이 설치 프로그램은 런타임을 자동으로 다운로드하지 않습니다.' + #13#10 + #13#10 +
       'Program Manager requires .NET Framework 4.8. Install it from Microsoft, then run Setup again.',

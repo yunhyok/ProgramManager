@@ -33,6 +33,9 @@ try {
     Invoke-Dotnet build 'tests\ProgramManager.DesktopChecks\ProgramManager.DesktopChecks.csproj' -c Release -f net48
     & (Join-Path $repoRoot 'tests\ProgramManager.DesktopChecks\bin\Release\net48\ProgramManager.DesktopChecks.exe')
     if ($LASTEXITCODE -ne 0) { throw 'The .NET Framework desktop checks failed.' }
+    Invoke-Dotnet run --project 'tests\ProgramManager.DesktopChecks\ProgramManager.DesktopChecks.csproj' -c Release -f net8.0-windows --no-build -- --layout-check (Join-Path $repoRoot 'artifacts\layout\net8')
+    & (Join-Path $repoRoot 'tests\ProgramManager.DesktopChecks\bin\Release\net48\ProgramManager.DesktopChecks.exe') --layout-check (Join-Path $repoRoot 'artifacts\layout\net48')
+    if ($LASTEXITCODE -ne 0) { throw 'The .NET Framework UI layout checks failed.' }
     & (Join-Path $repoRoot 'tests\ProgramManager.Checks\Check-CrossRuntime.ps1') -Configuration Release
 
     foreach ($target in 'win10-x64', 'win7') {
@@ -58,7 +61,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Windows 7 installer compilation failed.' }
 
     $installerRoot = Join-Path $repoRoot 'artifacts\installers'
-    $installers = @('ProgramManager-Setup-0.1.0.exe', 'ProgramManager-Setup-0.1.0-win7.exe')
+    $installers = @('ProgramManager-Setup-0.1.1.exe', 'ProgramManager-Setup-0.1.1-win7.exe')
     $hashes = foreach ($name in $installers) {
         $file = Get-Item -LiteralPath (Join-Path $installerRoot $name)
         if ($file.Length -eq 0) { throw "Installer is empty: $name" }
@@ -66,7 +69,7 @@ try {
         '{0}  {1}' -f $hash.Hash.ToLowerInvariant(), $file.Name
     }
     $hashes | Set-Content -LiteralPath (Join-Path $installerRoot 'SHA256SUMS.txt') -Encoding ascii
-    Write-Host "Program Manager 0.1.0 installers: $installerRoot"
+    Write-Host "Program Manager 0.1.1 installers: $installerRoot"
 } finally {
     Pop-Location
 }

@@ -13,7 +13,27 @@ internal static class DesktopCheckRunner
         Directory.CreateDirectory(root);
         try
         {
+#if !NET48
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+#endif
+            Application.EnableVisualStyles();
+            Application.SetCompatibleTextRenderingDefault(false);
             if (args.Length == 2 && args[0] == "--render") { Render(root, args[1]); return 0; }
+            if (args.Length == 2 && args[0] == "--layout-check")
+            {
+                var failures = new List<string>();
+                var observations = new List<string>();
+                foreach (var percent in new[] { 0, 100, 125, 150, 200, 250 })
+                {
+                    var run = new LayoutCheck(percent, failures);
+                    Render(Path.Combine(root, percent.ToString()), Path.Combine(args[1], percent == 0 ? "native" : "simulated-" + percent), run);
+                    observations.AddRange(run.Observations);
+                }
+                Directory.CreateDirectory(args[1]);
+                File.WriteAllLines(Path.Combine(args[1], "layout-report.txt"), new[] { "Native run uses production SystemAware DPI. Other runs simulate scaled fonts/geometry in a constrained logical viewport; they do not change monitor DPI or Windows settings." }.Concat(observations).Concat(failures.Count == 0 ? new[] { "PASS: all layout checks" } : failures));
+                Assert(failures.Count == 0, failures.Count + " layout issues; see layout-report.txt");
+                return 0;
+            }
             Checks(root);
             Console.WriteLine("PASS: copied Windows shortcut preserves target/arguments/working directory; deletion-safe launcher; stable dedup; settings/program rollback; corrupt/null JSON rejection; platform numeric ordering");
             return 0;
@@ -27,10 +47,8 @@ internal static class DesktopCheckRunner
         }
     }
 
-    private static void Render(string root, string outputDirectory)
+    private static void Render(string root, string outputDirectory, LayoutCheck? layout = null)
     {
-        Application.EnableVisualStyles();
-        Application.SetCompatibleTextRenderingDefault(false);
         Directory.CreateDirectory(outputDirectory);
         var state = new AppState(Path.Combine(root, "state"));
         var localSettings = Clone(state.Settings);
@@ -51,23 +69,26 @@ internal static class DesktopCheckRunner
         using var form = new MainForm(state, false);
         form.Show();
         Application.DoEvents();
+        layout?.Prepare(form);
         var flags = BindingFlags.Instance | BindingFlags.NonPublic;
         typeof(MainForm).GetField("_remote", flags)!.SetValue(form, sampleCatalog);
         typeof(MainForm).GetField("_fingerprint", flags)!.SetValue(form, new string('A', 64));
         typeof(MainForm).GetMethod("Render", flags)!.Invoke(form, null);
+        layout?.CheckActions(form);
         var tabs = (TabControl)typeof(MainForm).GetField("_tabs", flags)!.GetValue(form)!;
         for (var index = 0; index < tabs.TabCount; index++)
         {
             tabs.SelectedIndex = index;
             form.PerformLayout();
             Application.DoEvents();
+            layout?.Inspect(form, new[] { "local", "catalog", "host" }[index]);
             using var bitmap = new Bitmap(form.Width, form.Height);
             form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, form.Size));
             var path = Path.GetFullPath(Path.Combine(outputDirectory, "program-manager-" + new[] { "local", "catalog", "host" }[index] + ".png"));
             bitmap.Save(path, System.Drawing.Imaging.ImageFormat.Png);
             Console.WriteLine(path);
         }
-        foreach (var dialogName in new[] { "register", "publish", "settings" })
+        foreach (var dialogName in new[] { "register", "publish", "settings", "pairing", "history" })
         {
             EventHandler? capture = null;
             capture = (_, _) =>
@@ -75,6 +96,8 @@ internal static class DesktopCheckRunner
                 var dialog = Application.OpenForms.Cast<Form>().LastOrDefault(f => f != form && f.Modal);
                 if (dialog is null) return;
                 Application.Idle -= capture;
+                layout?.Prepare(dialog);
+                layout?.Inspect(dialog, dialogName);
                 using var bitmap = new Bitmap(dialog.Width, dialog.Height);
                 dialog.DrawToBitmap(bitmap, new Rectangle(Point.Empty, dialog.Size));
                 var path = Path.GetFullPath(Path.Combine(outputDirectory, "program-manager-" + dialogName + ".png"));
@@ -87,7 +110,9 @@ internal static class DesktopCheckRunner
             {
                 if (dialogName == "register") Dialogs.EditLocal(form, state.Settings.Programs[0]);
                 else if (dialogName == "publish") Dialogs.Publish(form, sampleCatalog.Apps[0]);
-                else Dialogs.Settings(form, state);
+                else if (dialogName == "settings") Dialogs.Settings(form, state);
+                else if (dialogName == "pairing") Dialogs.ShowPairing(form, "Test-only connection code. No real host credentials.", "192.0.2.10:45672");
+                else typeof(MainForm).GetMethod("ShowHostHistory", flags)!.Invoke(form, null);
             }
             finally { Application.Idle -= capture; }
         }

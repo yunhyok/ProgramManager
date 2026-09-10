@@ -6,7 +6,7 @@ namespace ProgramManager;
 
 internal static class Program
 {
-    public const string DisplayName = "Program Manager 0.1.0";
+    public const string DisplayName = "Program Manager 0.1.1";
     public static string DataDirectory { get; private set; } = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ProgramManager");
     public static uint ShowMessage { get; private set; }
 

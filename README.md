@@ -1,4 +1,4 @@
-# Program Manager 0.1.0
+# Program Manager 0.1.1
 
 개인 개발 프로그램을 트레이의 목록에서 실행하고, 내부망 호스트가 게시한 설치 파일과 변경 이력을 다른 컴퓨터에서 확인하는 Windows 프로그램입니다. 하나의 앱에서 **클라이언트** 또는 **호스트 + 클라이언트** 역할을 선택합니다.
 
@@ -6,8 +6,8 @@
 
 | 컴퓨터 | 설치 파일 | 런타임 |
 | --- | --- | --- |
-| Windows 10/11 64비트 | `ProgramManager-Setup-0.1.0.exe` | .NET 8 포함 |
-| Windows 7 SP1 / 8 계열 | `ProgramManager-Setup-0.1.0-win7.exe` | .NET Framework 4.8 사전 설치 필요 |
+| Windows 10/11 64비트 | `ProgramManager-Setup-0.1.1.exe` | .NET 8 포함 |
+| Windows 7 SP1 / 8 계열 | `ProgramManager-Setup-0.1.1-win7.exe` | .NET Framework 4.8 사전 설치 필요 |
 
 설치 위치는 기본적으로 `%LOCALAPPDATA%\Programs\Program Manager`입니다. 바탕화면 바로가기는 기본으로 만들지 않으며, 시작 메뉴에서 실행할 수 있습니다. Windows 로그인 시 자동 실행은 설치 옵션 또는 프로그램 옵션에서 선택합니다.
 
@@ -75,7 +75,7 @@ Windows, .NET SDK 8, Inno Setup 6.3 이상 6.x가 필요합니다. .NET Framewor
 
 자동 검사는 카탈로그·플랫폼 처리, 인증된 호스트/클라이언트 연결, 거부 처리, 파일 무결성과 .NET 8 ↔ .NET Framework 4.8 양방향 통신을 다룹니다. 실제 검사 통과 여부는 빌드 로그로 확인하세요. Windows 7 실기기와 두 번째 물리 PC에서의 설치·통신은 별도 확인이 필요합니다. 최신 Windows에서 `net48`을 실행한 결과만으로 Windows 7 호환성을 확정하지 않습니다.
 
-0.1.0의 빌드·설치·실제 파일 전송·화면 검사 결과는 [검증 기록](docs/verification.md)에 있습니다.
+0.1.1은 화면 배율에 맞춰 제목·검색줄·표·대화상자를 조정합니다. 저장·취소 버튼은 스크롤 영역 밖 하단에 고정됩니다. 실제 250% 배율과 100~250% 크기 모의 검사를 빌드에 포함했습니다. 결과와 범위는 [0.1.1 UI 검증 기록](docs/verification-0.1.1.md), 이전 배포 검사는 [0.1.0 검증 기록](docs/verification.md)에 있습니다.
 
 설치 프로그램의 실제 설치 위치는 제품마다 달라 사용자가 실행 경로를 확인합니다. Manager 목록에서 제거해도 대상 프로그램 자체를 삭제하지 않습니다. 자동 롤백, 호스트 자동 검색, Windows 서비스, 인터넷 배포와 원격 무인 설치는 현재 범위에 포함하지 않습니다.
 

@@ -29,31 +29,36 @@ internal sealed class MainForm : Form
 
     public MainForm(AppState state, bool startInTray)
     {
+        Ui.BeginForm(this);
         _state = state;
         Text = Program.DisplayName;
-        Font = new Font("맑은 고딕", 10);
         ForeColor = Ui.Ink;
         BackColor = Ui.Canvas;
         ClientSize = new Size(1110, 740);
         MinimumSize = new Size(900, 650);
-        AutoScaleMode = AutoScaleMode.Dpi;
         StartPosition = FormStartPosition.CenterScreen;
         Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath) ?? SystemIcons.Application;
 
-        var shell = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 4, ColumnCount = 1, Padding = new Padding(24, 20, 24, 12) };
-        shell.RowStyles.Add(new RowStyle(SizeType.Absolute, 88));
-        shell.RowStyles.Add(new RowStyle(SizeType.Absolute, 45));
+        var shell = new TableLayoutPanel { Dock = DockStyle.Fill, AutoScroll = true, RowCount = 4, ColumnCount = 1, Padding = new Padding(24, 20, 24, 12) };
+        shell.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        shell.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        shell.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         shell.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        shell.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
-        var header = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 2 };
+        shell.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        var header = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, ColumnCount = 2, RowCount = 2 };
         header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 210));
-        header.RowStyles.Add(new RowStyle(SizeType.Absolute, 52));
-        header.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        header.Controls.Add(Ui.Label("프로그램을 한곳에서.", 22, true), 0, 0);
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        header.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        header.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        var heading = Ui.Label("프로그램을 한곳에서.", 18, true);
+        heading.Dock = DockStyle.Fill;
+        header.Controls.Add(heading, 0, 0);
         var headerButtons = Ui.Bar(Ui.Button("설정", async (_, _) => await SettingsAsync()), Ui.Button("도움말", (_, _) => ShowHelp()));
         headerButtons.WrapContents = false;
+        headerButtons.Dock = DockStyle.None;
+        headerButtons.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         header.Controls.Add(headerButtons, 1, 0);
+        _summary.Dock = _connection.Dock = _hostStatus.Dock = DockStyle.Fill;
         header.Controls.Add(_summary, 0, 1);
         header.SetColumnSpan(_summary, 2);
         shell.Controls.Add(header, 0, 0);
@@ -67,16 +72,35 @@ internal sealed class MainForm : Form
         _platform.SelectedIndex = Platforms.Current == Platforms.Modern ? 0 : 1;
         _platform.SelectedIndexChanged += (_, _) => Render();
 
-        _tabs.TabPages.Add(Page("내 프로그램", Ui.Bar(Ui.Button("+ 프로그램 등록", (_, _) => EditLocal(), true), Ui.Button("실행", (_, _) => Launch()), Ui.Button("편집", (_, _) => EditLocal(Selected<LocalProgram>(_local))), Ui.Button("목록에서 제거", (_, _) => RemoveLocal())), _local));
+        var launch = Ui.Button("실행", (_, _) => Launch());
+        var edit = Ui.Button("편집", (_, _) => EditLocal(Selected<LocalProgram>(_local)));
+        var remove = Ui.Button("목록에서 제거", (_, _) => RemoveLocal());
+        launch.Enabled = edit.Enabled = remove.Enabled = false;
+        _local.SelectionChanged += (_, _) => launch.Enabled = edit.Enabled = remove.Enabled = Selected<LocalProgram>(_local) != null;
+        _tabs.TabPages.Add(Page("내 프로그램", Ui.Bar(Ui.Button("+ 프로그램 등록", (_, _) => EditLocal(), true), launch, edit, remove), _local));
         var catalogPane = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2 };
+        catalogPane.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         catalogPane.RowStyles.Add(new RowStyle(SizeType.Percent, 64));
         catalogPane.RowStyles.Add(new RowStyle(SizeType.Percent, 36));
         catalogPane.Controls.Add(_catalog, 0, 0);
         var detailPanel = new GroupBox { Dock = DockStyle.Fill, Text = "설명 및 버전 기록", Padding = new Padding(12, 22, 12, 12) };
         detailPanel.Controls.Add(_details);
         catalogPane.Controls.Add(detailPanel, 0, 1);
-        _tabs.TabPages.Add(Page("배포 카탈로그", Ui.Bar(_platform, Ui.Button("설치 / 업데이트", async (_, _) => await InstallAsync(), true), Ui.Button("기존 설치 연결", (_, _) => LinkExisting())), catalogPane));
-        _tabs.TabPages.Add(Page("호스트 관리", Ui.Bar(Ui.Button("+ 새 프로그램", async (_, _) => await PublishAsync(null), true), Ui.Button("버전 / Windows 배포본 추가", async (_, _) => await PublishAsync(Selected<CatalogApp>(_host))), Ui.Button("설명 / 이력", (_, _) => ShowHostHistory()), Ui.Button("연결 코드", (_, _) => ShowPairing()), Ui.Button("저장 폴더", (_, _) => OpenFolder(Path.Combine(_state.Root, "repository")))), _host, _hostStatus));
+        var install = Ui.Button("설치 / 업데이트", async (_, _) => await InstallAsync(), true);
+        var link = Ui.Button("기존 설치 연결", (_, _) => LinkExisting());
+        install.Enabled = link.Enabled = false;
+        _catalog.SelectionChanged += (_, _) =>
+        {
+            var app = Selected<CatalogApp>(_catalog);
+            link.Enabled = app != null && TargetPlatform == Platforms.Current;
+            install.Enabled = link.Enabled && Platforms.Latest(app!, TargetPlatform) != null;
+        };
+        _tabs.TabPages.Add(Page("배포 카탈로그", Ui.Bar(_platform, install, link), catalogPane));
+        var addRelease = Ui.Button("버전 / Windows 배포본 추가", async (_, _) => await PublishAsync(Selected<CatalogApp>(_host)));
+        var history = Ui.Button("설명 / 이력", (_, _) => ShowHostHistory());
+        addRelease.Enabled = history.Enabled = false;
+        _host.SelectionChanged += (_, _) => addRelease.Enabled = history.Enabled = Selected<CatalogApp>(_host) != null;
+        _tabs.TabPages.Add(Page("호스트 관리", Ui.Bar(Ui.Button("+ 새 프로그램", async (_, _) => await PublishAsync(null), true), addRelease, history, Ui.Button("연결 코드", (_, _) => ShowPairing()), Ui.Button("저장 폴더", (_, _) => OpenFolder(Path.Combine(_state.Root, "repository")))), _host, _hostStatus));
         _host.CellDoubleClick += (_, e) => { if (e.RowIndex >= 0) ShowHostHistory(); };
         _local.CellDoubleClick += (_, e) => { if (e.RowIndex >= 0) Launch(); };
         _local.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) { e.Handled = true; e.SuppressKeyPress = true; Launch(); } };
@@ -117,12 +141,14 @@ internal sealed class MainForm : Form
             if (_state.Settings.PairingProtected.Length > 0) await RefreshAsync();
         };
         Render();
+        ResumeLayout(true);
     }
 
     private static TabPage Page(string text, Control toolbar, Control body, Control? note = null)
     {
         var page = new TabPage(text) { BackColor = Ui.Canvas, Padding = new Padding(12) };
         var layout = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = note is null ? 2 : 3, ColumnCount = 1 };
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.Controls.Add(toolbar, 0, 0);
         if (note != null) { layout.RowStyles.Add(new RowStyle(SizeType.AutoSize)); layout.Controls.Add(note, 0, 1); }
@@ -209,8 +235,15 @@ internal sealed class MainForm : Form
     {
         var app = Selected<CatalogApp>(_host);
         if (app is null || _busy) return;
-        using var dialog = new Form { Text = app.Name + " · 설명 / 이력 · " + Program.DisplayName, Font = Font, ClientSize = new Size(720, 520), StartPosition = FormStartPosition.CenterParent, Padding = new Padding(16), BackColor = Color.White };
+        using var dialog = new Form();
+        Ui.BeginForm(dialog);
+        dialog.Text = app.Name + " · 설명 / 이력 · " + Program.DisplayName;
+        dialog.ClientSize = new Size(720, 520);
+        dialog.StartPosition = FormStartPosition.CenterParent;
+        dialog.Padding = new Padding(16);
+        dialog.BackColor = Color.White;
         dialog.Controls.Add(new TextBox { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Text = Describe(app), BackColor = Color.White, BorderStyle = BorderStyle.None });
+        dialog.ResumeLayout(true);
         dialog.ShowDialog(this);
     }
 

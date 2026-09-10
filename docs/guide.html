@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Program Manager 0.1.0 사용 안내</title>
+  <title>Program Manager 0.1.1 사용 안내</title>
   <style>
     body { margin: 0; background: #f4f6f8; color: #243042; font: 16px/1.75 "Segoe UI", "Malgun Gothic", sans-serif; }
     main { max-width: 860px; margin: 32px auto; padding: 36px; background: #fff; border: 1px solid #dbe2e8; border-radius: 12px; }
@@ -25,7 +25,8 @@
 </head>
 <body>
 <main>
-  <h1>Program Manager 0.1.0</h1>
+  <h1>Program Manager 0.1.1</h1>
+  <p>0.1.1에서는 높은 화면 배율에서 글자가 잘리던 문제를 수정했습니다. 창 크기에 따라 도구 모음이 줄바꿈되며, 설정·등록 창의 저장과 취소 버튼은 하단에 유지됩니다.</p>
   <p class="lead">트레이 한 곳에서 프로그램을 실행하고, 다른 컴퓨터에 배포할 버전을 관리합니다.</p>
   <nav aria-label="도움말 목차">
     <a href="#launch">목록 정리</a><a href="#host">호스트 준비</a><a href="#client">클라이언트 연결</a><a href="#updates">설치·업데이트</a><a href="#help">문제 해결</a>
@@ -35,8 +36,8 @@
   <div class="table"><table>
     <thead><tr><th scope="col">컴퓨터</th><th scope="col">사용할 설치 파일</th></tr></thead>
     <tbody>
-      <tr><td>Windows 10/11 64비트</td><td><code>ProgramManager-Setup-0.1.0.exe</code><br>.NET 8 런타임 포함</td></tr>
-      <tr><td>Windows 7 SP1 / 8 계열</td><td><code>ProgramManager-Setup-0.1.0-win7.exe</code><br>.NET Framework 4.8 사전 설치 필요</td></tr>
+      <tr><td>Windows 10/11 64비트</td><td><code>ProgramManager-Setup-0.1.1.exe</code><br>.NET 8 런타임 포함</td></tr>
+      <tr><td>Windows 7 SP1 / 8 계열</td><td><code>ProgramManager-Setup-0.1.1-win7.exe</code><br>.NET Framework 4.8 사전 설치 필요</td></tr>
     </tbody>
   </table></div>
   <p>시작 메뉴에서 Program Manager를 실행합니다. 설치 시 바탕화면 바로가기는 기본으로 만들지 않습니다. 자동 실행을 선택하면 Windows 로그인 후 트레이에서 시작합니다.</p>
@@ -106,8 +107,8 @@
   <h2 id="data">데이터 위치와 동작 범위</h2>
   <p>기본 데이터 폴더는 <code>%LOCALAPPDATA%\ProgramManager</code>입니다. <code>settings.json</code>은 설정, <code>repository</code>는 배포 저장소, <code>identity</code>는 보호된 호스트 인증 정보, <code>downloads</code>는 다운로드, <code>cache.json</code>은 마지막 호스트 목록입니다. 프로그램 제거 시 이 사용자 데이터는 보존합니다.</p>
   <p><code>--tray</code>는 트레이 시작, <code>--data-dir &quot;폴더 경로&quot;</code>는 별도 데이터 폴더 실행 옵션입니다. 일반 사용에서는 기본 경로를 사용하면 됩니다.</p>
-  <p>0.1.0은 내부망에서 수동 연결과 사용자가 선택하는 설치를 제공합니다. 인터넷 중계, 공유기 포트 개방, 자동 롤백, 호스트 자동 검색, Windows 서비스는 포함하지 않습니다. 실제 Windows 7 PC와 두 번째 물리 PC에서의 설치·통신은 별도 확인이 필요합니다.</p>
-  <footer>Program Manager 0.1.0 · 설치에 포함된 오프라인 도움말 · 외부 연결 없이 읽을 수 있습니다.</footer>
+  <p>0.1.1은 내부망에서 수동 연결과 사용자가 선택하는 설치를 제공합니다. 인터넷 중계, 공유기 포트 개방, 자동 롤백, 호스트 자동 검색, Windows 서비스는 포함하지 않습니다. 실제 Windows 7 PC와 두 번째 물리 PC에서의 설치·통신은 별도 확인이 필요합니다.</p>
+  <footer>Program Manager 0.1.1 · 설치에 포함된 오프라인 도움말 · 외부 연결 없이 읽을 수 있습니다.</footer>
 </main>
 </body>
 </html>
