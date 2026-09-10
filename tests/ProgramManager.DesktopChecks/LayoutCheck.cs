@@ -148,7 +148,7 @@ internal sealed class LayoutCheck
 
     private void Check(bool condition, string prefix, string message)
     {
-        if (!condition) _failures.Add(prefix + ": " + message);
+        if (!condition) { _failures.Add(prefix + ": " + message); Console.WriteLine("LAYOUT FAIL " + prefix + ": " + message); }
     }
     private static string Short(string text) => text.Replace("\r", " ").Replace("\n", " ").Substring(0, Math.Min(text.Length, 45));
     private static IEnumerable<Control> Descendants(Control control)

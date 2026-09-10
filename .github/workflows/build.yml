@@ -38,6 +38,13 @@ jobs:
         shell: pwsh
         run: ./tools/build.ps1
       - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: ProgramManager-layout-failure
+          path: artifacts/layout/**/layout-report.txt
+          if-no-files-found: ignore
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
         with:
           name: ProgramManager-${{ steps.version.outputs.version }}-installers
           path: |
