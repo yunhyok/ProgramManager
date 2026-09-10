@@ -16,6 +16,7 @@ public sealed class LocalProgram
     public string CatalogId { get; set; } = "";
     public string HostFingerprint { get; set; } = "";
     public string InstalledPlatform { get; set; } = "";
+    public string InstallationKey { get; set; } = "";
 }
 
 public sealed class UserSettings
@@ -29,6 +30,8 @@ public sealed class UserSettings
     public List<string> RecentProgramIds { get; set; } = [];
     public bool ManagerAutoCheck { get; set; } = true;
     public string ManagerNotifiedVersion { get; set; } = "";
+    public bool AppAutoCheck { get; set; } = true;
+    public string AppUpdateNotificationKey { get; set; } = "";
     public string GitHubOwner { get; set; } = "";
     public bool UseGitHubCli { get; set; } = true;
     public string GitHubTokenProtected { get; set; } = "";
@@ -175,6 +178,7 @@ public sealed class AppState
                 || settings.RecentProgramIds.Distinct(StringComparer.OrdinalIgnoreCase).Count() != settings.RecentProgramIds.Count)
                 throw new InvalidDataException("최근 실행 목록이 올바르지 않습니다.");
             CatalogRules.Text(settings.ManagerNotifiedVersion, 43);
+            CatalogRules.Text(settings.AppUpdateNotificationKey, 64);
             if (settings.ManagerNotifiedVersion.Length > 0) CatalogRules.Version(settings.ManagerNotifiedVersion);
             new PairingInfo { Host = settings.AdvertisedHost, Port = settings.Port, Fingerprint = new string('0', 64), Token = new string('0', 64) }.Validate();
             CatalogRules.Text(settings.PairingProtected, 20000);
@@ -201,6 +205,7 @@ public sealed class AppState
         CatalogRules.Text(item.CatalogId, 64);
         CatalogRules.Text(item.HostFingerprint, 64);
         CatalogRules.Text(item.InstalledPlatform, 20);
+        CatalogRules.Text(item.InstallationKey, 1024);
         if (!Path.IsPathRooted(item.Path) || !new[] { ".exe", ".lnk" }.Contains(Path.GetExtension(item.Path), StringComparer.OrdinalIgnoreCase)) throw new InvalidDataException("프로그램 경로는 EXE 또는 LNK 파일의 전체 경로여야 합니다.");
         Path.GetFullPath(item.Path);
         if (item.SourcePath.Length > 0 && !Path.IsPathRooted(item.SourcePath)) throw new InvalidDataException("바로가기 원본 경로가 올바르지 않습니다.");

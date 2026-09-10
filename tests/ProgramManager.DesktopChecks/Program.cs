@@ -18,6 +18,7 @@ internal static class DesktopCheckRunner
 #endif
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
+            if (args.Length == 1 && args[0] == "--installed-check") { InstalledProgramsChecks.Run(root); return 0; }
             if (args.Length == 2 && args[0] == "--render") { Render(root, args[1]); return 0; }
             if (args.Length == 2 && args[0] == "--layout-check")
             {
@@ -51,6 +52,7 @@ internal static class DesktopCheckRunner
             ManagerUpdaterChecks.Run(root);
             UpdateInstallerChecks.Run(root);
             ConnectionSettingsChecks.Run(root);
+            InstalledProgramsChecks.Run(root);
             Console.WriteLine("PASS: copied Windows shortcut preserves target/arguments/working directory; deletion-safe launcher; stable dedup; settings/program rollback; corrupt/null JSON rejection; platform numeric ordering; recent five history and tray dispatch; repository preflight/progress/patterns/retry/cancellation");
             return 0;
         }
@@ -69,6 +71,7 @@ internal static class DesktopCheckRunner
         var state = new AppState(Path.Combine(root, "state"));
         var localSettings = Clone(state.Settings);
         localSettings.ManagerAutoCheck = false;
+        localSettings.AppAutoCheck = false;
         var sampleCatalog = new Catalog();
         var samples = new[] { ("intra-drop", "Intra Drop", "1.4.0", "1.4.1", "내부망 파일 전송 및 PC 간 공유"), ("spd-cap-injector", "SPD Cap Injector", "0.1.6", "0.1.6", "SPD 부품 번호 정리 및 커패시터 정보 편집"), ("pi-calculator", "PI Calculator", "0.22.7", "0.23.0", "전원 무결성 분석 및 디커플링 설계 검토") };
         foreach (var sample in samples)
@@ -86,6 +89,10 @@ internal static class DesktopCheckRunner
         using var form = new MainForm(state, false);
         form.Show();
         Application.DoEvents();
+        var startupDeadline = DateTime.UtcNow.AddSeconds(20);
+        var busyField = typeof(MainForm).GetField("_busy", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        while ((bool)busyField.GetValue(form)! && DateTime.UtcNow < startupDeadline) { Application.DoEvents(); Thread.Sleep(1); }
+        Assert(!(bool)busyField.GetValue(form)!, "startup inventory finishes before populated layout inspection");
         layout?.Prepare(form);
         var flags = BindingFlags.Instance | BindingFlags.NonPublic;
         typeof(MainForm).GetField("_remote", flags)!.SetValue(form, sampleCatalog);
@@ -563,7 +570,7 @@ internal static class DesktopCheckRunner
 
     private static IEnumerable<ToolStripMenuItem> RecentItems(ContextMenuStrip menu) => menu.Items.OfType<ToolStripMenuItem>().Where(item => item.Tag is string id && Guid.TryParse(id, out _));
 
-    private static void MakeShortcut(string path, string target, string arguments, string workingDirectory)
+    internal static void MakeShortcut(string path, string target, string arguments, string workingDirectory)
     {
         var shell = Activator.CreateInstance(Type.GetTypeFromProgID("WScript.Shell")!)!;
         object? shortcut = null;
@@ -577,7 +584,7 @@ internal static class DesktopCheckRunner
         finally { if (shortcut is not null) Marshal.FinalReleaseComObject(shortcut); Marshal.FinalReleaseComObject(shell); }
     }
 
-    private static void ReadShortcut(string path, string target, string arguments, string workingDirectory)
+    internal static void ReadShortcut(string path, string target, string arguments, string workingDirectory)
     {
         var shell = Activator.CreateInstance(Type.GetTypeFromProgID("WScript.Shell")!)!;
         object? shortcut = null;

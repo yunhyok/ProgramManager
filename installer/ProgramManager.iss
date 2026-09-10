@@ -3,7 +3,7 @@
   #error Inno Setup 6.3 or later in the 6.x series is required.
 #endif
 #define AppName "Program Manager"
-#define AppVersion "0.3.1"
+#define AppVersion "0.4.0"
 #define AppExe "ProgramManager.exe"
 #ifdef Legacy
   #define PublishDir "..\artifacts\publish\win7"

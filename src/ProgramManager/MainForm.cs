@@ -7,6 +7,9 @@ internal sealed class MainForm : Form
 {
     private readonly AppState _state;
     private readonly NotifyIcon _tray;
+    private readonly Icon _appUpdateIcon;
+    private List<(LocalProgram Program, CatalogApp App, AppRelease Release)> _appUpdates = [];
+    private bool _appBalloon;
     private readonly TabControl _tabs = new() { Dock = DockStyle.Fill, Padding = new Point(20, 10) };
     private readonly DataGridView _local = Ui.Grid(("프로그램", 26), ("설치 버전", 13), ("업데이트", 16), ("실행 경로", 45));
     private readonly DataGridView _catalog = Ui.Grid(("프로그램", 29), ("설치 버전", 15), ("배포 버전", 15), ("상태", 16), ("설명", 35));
@@ -48,6 +51,7 @@ internal sealed class MainForm : Form
         MinimumSize = new Size(900, 650);
         StartPosition = FormStartPosition.CenterScreen;
         Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath) ?? SystemIcons.Application;
+        _appUpdateIcon = Ui.UpdateIcon(Icon);
 
         var shell = new TableLayoutPanel { Dock = DockStyle.Fill, AutoScroll = true, RowCount = 4, ColumnCount = 1, Padding = new Padding(24, 20, 24, 12) };
         shell.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -97,7 +101,7 @@ internal sealed class MainForm : Form
         detailPanel.Controls.Add(_details);
         catalogPane.Controls.Add(detailPanel, 0, 1);
         var install = Ui.Button("설치 / 업데이트", async (_, _) => await InstallAsync(), true);
-        var link = Ui.Button("기존 설치 연결", (_, _) => LinkExisting());
+        var link = Ui.Button("기존 설치 연결", async (_, _) => await LinkExistingAsync());
         var offlineHelp = Ui.Button("오프라인 설명", async (_, _) => await OpenDocumentationAsync(false));
         install.Enabled = link.Enabled = offlineHelp.Enabled = false;
         _catalog.SelectionChanged += (_, _) =>
@@ -137,7 +141,7 @@ internal sealed class MainForm : Form
         menu.Opening += (_, e) => { if (_settingsOpen) e.Cancel = true; else PopulateTrayMenu(menu); };
         _tray = new NotifyIcon { Icon = Icon, Text = Program.DisplayName, Visible = true, ContextMenuStrip = menu };
         _tray.MouseClick += (_, e) => { if (e.Button == MouseButtons.Left) ShowManager(); };
-        _tray.BalloonTipClicked += async (_, _) => { if (_settingsOpen) return; if (_managerUpdate != null) await InstallManagerUpdateAsync(); else ShowManager(); };
+        _tray.BalloonTipClicked += async (_, _) => { if (_settingsOpen) return; if (_appBalloon) ShowAppUpdate(); else if (_managerUpdate != null) await InstallManagerUpdateAsync(); else ShowManager(); };
         FormClosing += (_, e) =>
         {
             if (_quitting || e.CloseReason == CloseReason.WindowsShutDown || e.CloseReason == CloseReason.TaskManagerClosing) return;
@@ -147,12 +151,17 @@ internal sealed class MainForm : Form
         Shown += async (_, _) =>
         {
             if (startInTray) Hide();
-            await RunAsync("시작 중…", async _ => { LoadCatalogs(); await RestartHostAsync(); LoadCatalogs(); CleanupTemporaryFiles(false); Render(); });
-            if (_state.Settings.PairingProtected.Length > 0) await RefreshAsync();
+            await RunAsync("시작 중…", async _ => { LoadCatalogs(); await RestartHostAsync(); LoadCatalogs(); await RefreshInstalledAsync(); CleanupTemporaryFiles(false); Render(); });
+            if (_state.Settings.AppAutoCheck && ActivePairing != null) await RefreshAsync(false);
             ShowManagerUpdateResult();
             if (_state.Settings.ManagerAutoCheck) await CheckManagerUpdateAsync(false);
         };
-        _cacheTimer.Tick += (_, _) => { if (!_busy && !_settingsOpen) CleanupTemporaryFiles(false); };
+        _cacheTimer.Tick += async (_, _) =>
+        {
+            if (_busy || _settingsOpen) return;
+            CleanupTemporaryFiles(false);
+            if (_state.Settings.AppAutoCheck) await RefreshAsync(false);
+        };
         _cacheTimer.Start();
         _managerTimer.Tick += async (_, _) => { if (!_settingsOpen && _state.Settings.ManagerAutoCheck) await CheckManagerUpdateAsync(false); };
         _managerTimer.Start();
@@ -180,6 +189,10 @@ internal sealed class MainForm : Form
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(Program.DisplayName, null, (_, _) => ShowManager());
         menu.Items.Add("프로그램 목록", null, (_, _) => { _tabs.SelectedIndex = 0; ShowManager(); });
+        var updates = new ToolStripMenuItem("앱 업데이트 " + _appUpdates.Count + "개") { Enabled = _appUpdates.Count > 0 && !_busy };
+        foreach (var appUpdate in _appUpdates)
+            updates.DropDownItems.Add(appUpdate.Program.Name.Replace("&", "&&") + "  " + appUpdate.Program.InstalledVersion + " → " + appUpdate.Release.Version, null, (_, _) => ShowAppUpdate(appUpdate.App.Id));
+        menu.Items.Add(updates);
         menu.Items.Add("배포 프로그램 업데이트 확인", null, async (_, _) => { ShowManager(); _tabs.SelectedIndex = 1; await RefreshAsync(); });
         if (_managerUpdate is { } update)
             menu.Items.Add(new ToolStripMenuItem("Program Manager " + update.Release.Version + " 업데이트 및 재시작", null, async (_, _) => await InstallManagerUpdateAsync()) { Enabled = !_busy && !_checkingManager });
@@ -247,7 +260,16 @@ internal sealed class MainForm : Form
         RestoreSelection(_local, localId, x => ((LocalProgram)x).Id);
         RestoreSelection(_catalog, catalogId, x => ((CatalogApp)x).Id);
         RestoreSelection(_host, hostId, x => ((CatalogApp)x).Id);
-        var updates = _state.Settings.Programs.Count(p => p.HostFingerprint == _fingerprint && _remote.Apps.Any(a => a.Id == p.CatalogId && Platforms.Latest(a, Platforms.Current) is AppRelease r && InstallStatus(p, r) == "업데이트 가능"));
+        _appUpdates = _state.Settings.Programs.Where(p => p.HostFingerprint == _fingerprint)
+            .Select(p => (Program: p, App: _remote.Apps.FirstOrDefault(a => a.Id == p.CatalogId)))
+            .Where(p => p.App != null && Platforms.Latest(p.App, Platforms.Current) is AppRelease release && InstalledPrograms.IsUpdate(p.Program, release))
+            .Select(p => (p.Program, App: p.App!, Release: Platforms.Latest(p.App!, Platforms.Current)!)).ToList();
+        var updates = _appUpdates.Count;
+        if (_tray != null)
+        {
+            _tray.Icon = updates > 0 ? _appUpdateIcon : Icon;
+            _tray.Text = Program.DisplayName + (updates > 0 ? " · 앱 업데이트 " + updates + "개" : "");
+        }
         _summary.Text = $"내 프로그램 {_state.Settings.Programs.Count}개   ·   업데이트 {updates}개   ·   {Platforms.Label(Platforms.Current)}   ·   {(_state.Settings.HostEnabled ? "호스트 + 클라이언트" : "클라이언트")}";
         _connection.Text = _state.Settings.HostEnabled && _state.Pairing is null ? "배포 접속 정보와 연결 코드: 설정 → 호스트 · 배포" : _fingerprint.Length == 0 ? "호스트 연결: 설정 → 클라이언트 · 연결" : $"마지막 목록 확인: {_state.Cache.CheckedUtc.LocalDateTime:g} · 설정 → 클라이언트 · 연결에서 호스트를 확인할 수 있습니다.";
         _receiveStatus.Text = _state.Pairing is PairingInfo connected ? $"받는 프로그램 · 호스트 {connected.Host}:{connected.Port} · 배포 앱 {_remote.Apps.Count}개\n이 목록은 설치 가능한 앱입니다. 설치하거나 ‘기존 설치 연결’을 해야 내 프로그램과 연결됩니다."
@@ -333,22 +355,75 @@ internal sealed class MainForm : Form
         catch (Exception ex) { _state.Settings.Programs = before; ShowError(ex); }
     }
 
-    private async Task RefreshAsync()
+    private async Task RefreshAsync(bool manual = true)
     {
         await RunAsync("배포 목록 확인 중…", async token =>
         {
             _published = await Task.Run(() => _state.Store.Read(), token);
+            await RefreshInstalledAsync();
             var info = ActivePairing;
             if (info is null) { Render(); _status.Text = "호스트 미연결 · 설정 → 클라이언트 · 연결에서 호스트가 준 코드를 등록하세요."; return; }
             using var client = new CatalogClient(info);
-            var catalog = await client.FetchCatalogAsync(token);
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+            timeout.CancelAfter(TimeSpan.FromSeconds(15));
+            var catalog = await client.FetchCatalogAsync(timeout.Token);
             _state.Cache = new CachedCatalog { Catalog = catalog, CheckedUtc = DateTimeOffset.UtcNow, Fingerprint = info.Fingerprint };
             _state.SaveCache();
             _remote = catalog;
             _fingerprint = info.Fingerprint;
+            await RefreshInstalledAsync();
             Render();
+            NotifyAppUpdates();
             _status.Text = _remote.Apps.Count == 0 ? "호스트 연결 성공 · 배포 앱 0개. 호스트에서 저장소 선택과 GitHub 동기화를 진행하세요." : $"배포 목록 {_remote.Apps.Count}개 확인 완료";
+        }, showErrors: manual);
+    }
+
+    private async Task RefreshInstalledAsync()
+    {
+        var programs = AppState.Clone(_state.Settings.Programs);
+        var catalog = _remote;
+        var fingerprint = _fingerprint;
+        var detected = await Task.Run(() =>
+        {
+            var inventory = InstalledPrograms.Read();
+            var results = new List<LocalProgram>();
+            foreach (var program in programs)
+            {
+                var apps = catalog.Apps.Where(a => program.CatalogId.Length > 0 ? a.Id == program.CatalogId && program.HostFingerprint == fingerprint
+                    : InstalledPrograms.Name(program.Name) == InstalledPrograms.Name(a.Name) || InstalledPrograms.Name(program.Name) == InstalledPrograms.Name(a.GitHubRepository.Split('/').Last())).ToArray();
+                if (apps.Length != 1 || Platforms.Latest(apps[0], Platforms.Current) is null) continue;
+                var found = inventory.Find(apps[0], program, out _);
+                if (found is null) continue;
+                if (found.InstalledVersion.Length == 0) found.InstalledVersion = program.InstalledVersion;
+                found.CatalogId = apps[0].Id; found.HostFingerprint = fingerprint; found.InstalledPlatform = Platforms.Current;
+                // Preserve registered shortcuts and their launch arguments while the target is unchanged.
+                if (InstalledPrograms.Executable(program.Path).Equals(InstalledPrograms.Executable(found.Path), StringComparison.OrdinalIgnoreCase)) found.Path = program.Path;
+                if (System.Text.Json.JsonSerializer.Serialize(found) != System.Text.Json.JsonSerializer.Serialize(program)) results.Add(found);
+            }
+            return results;
         });
+        foreach (var program in detected) _state.SaveProgram(program);
+        Render();
+    }
+
+    private void ShowAppUpdate(string? id = null)
+    {
+        ShowManager(); _search.Clear(); _tabs.SelectedIndex = 1;
+        id ??= _appUpdates.FirstOrDefault().App?.Id;
+        foreach (DataGridViewRow row in _catalog.Rows)
+            if (row.Tag is CatalogApp app && app.Id == id) { _catalog.CurrentCell = row.Cells[0]; row.Selected = true; break; }
+        _status.Text = "설치 버전과 배포 버전을 확인한 뒤 ‘설치 / 업데이트’를 선택하세요.";
+    }
+
+    private void NotifyAppUpdates()
+    {
+        var key = _appUpdates.Count == 0 ? "" : Compat.Hash(System.Text.Encoding.UTF8.GetBytes(string.Join(";", _appUpdates
+            .Select(u => u.Program.HostFingerprint + ":" + u.App.Id + ":" + u.Program.InstalledVersion + ":" + u.Release.Version).OrderBy(v => v, StringComparer.Ordinal))));
+        if (key == _state.Settings.AppUpdateNotificationKey) return;
+        var next = AppState.Clone(_state.Settings); next.AppUpdateNotificationKey = key; _state.CommitSettings(next);
+        if (_appUpdates.Count == 0) return;
+        _appBalloon = true;
+        _tray.ShowBalloonTip(10000, "설치된 앱 업데이트 " + _appUpdates.Count + "개", "새 버전이 있는 앱: " + string.Join(", ", _appUpdates.Take(3).Select(u => u.Program.Name)) + "\n트레이의 ‘앱 업데이트’ 메뉴에서 확인하세요.", ToolTipIcon.Info);
     }
 
     private async Task EnableHostAsync()
@@ -496,20 +571,41 @@ internal sealed class MainForm : Form
         _status.Text = "사용하지 않는 임시 파일을 정리했습니다. 필요한 파일은 다음 요청 때 다시 받습니다.";
     }
 
-    private void LinkExisting()
+    private async Task LinkExistingAsync()
     {
         if (_busy) return;
         var app = Selected<CatalogApp>(_catalog);
         if (app is null) return;
         if (TargetPlatform != Platforms.Current) { _status.Text = "이 PC에 맞는 대상 Windows를 선택하세요."; return; }
-        var existing = _state.FindInstalled(app.Id, _fingerprint);
-        // Existing installations need a user-verified version; never assume the catalog version is installed.
-        var result = Dialogs.EditLocal(this, existing, app: app, fingerprint: _fingerprint);
-        if (result != null)
+        await RunAsync("설치된 프로그램을 찾고 있습니다…", async _ =>
         {
-            result.InstalledPlatform = TargetPlatform;
-            try { SaveLocal(result); } catch (Exception ex) { ShowError(ex); }
+            var existing = _state.FindInstalled(app.Id, _fingerprint);
+            var inventory = await Task.Run(InstalledPrograms.Read);
+            var found = inventory.Find(app, existing, out var reason);
+            if (found != null) { SaveDetected(found, app, _fingerprint); _status.Text = app.Name + " · 설치된 프로그램을 자동 연결했습니다."; }
+            else
+            {
+                var result = Dialogs.EditLocal(this, existing, app: app, fingerprint: _fingerprint, guidance: reason + " 실행 파일과 실제 설치 버전을 확인해 주세요. 버전을 모르면 비워 두세요.");
+                if (result != null) { result.InstalledPlatform = Platforms.Current; SaveLocal(result); }
+            }
+            NotifyAppUpdates();
+        });
+    }
+
+    internal void SaveDetected(LocalProgram found, CatalogApp app, string fingerprint)
+    {
+        var executable = InstalledPrograms.Executable(found.Path);
+        var previous = _state.Settings.Programs.FirstOrDefault(p => p.Id == found.Id);
+        var sameTarget = _state.Settings.Programs.Where(p => InstalledPrograms.Executable(p.Path).Equals(executable, StringComparison.OrdinalIgnoreCase)).ToArray();
+        if (previous is null && sameTarget.Length > 1) throw new InvalidDataException("같은 실행 파일의 등록 항목이 여러 개입니다. 기존 항목을 선택해 배포 프로그램과 연결해 주세요.");
+        previous ??= sameTarget.SingleOrDefault();
+        if (previous != null)
+        {
+            found.Id = previous.Id; found.Name = previous.Name;
+            if (InstalledPrograms.Executable(previous.Path).Equals(executable, StringComparison.OrdinalIgnoreCase)) found.Path = previous.Path;
         }
+        found.CatalogId = app.Id; found.HostFingerprint = fingerprint; found.InstalledPlatform = Platforms.Current;
+        SaveLocal(found);
     }
 
     private async Task InstallAsync()
@@ -526,6 +622,10 @@ internal sealed class MainForm : Form
         await RunAsync("호스트에서 설치 파일 준비 / 다운로드 중…", async token =>
         {
             var info = ActivePairing ?? throw new InvalidOperationException("호스트 연결이 필요합니다.");
+            var inventory = await Task.Run(InstalledPrograms.Read);
+            var installed = inventory.Find(selected, old, out _);
+            if (installed != null && Version.TryParse(installed.InstalledVersion, out _) && Platforms.Numeric(installed.InstalledVersion) > Platforms.Numeric(release.Version))
+                throw new InvalidOperationException("현재 설치된 버전이 배포 버전보다 높습니다. 다운그레이드는 진행하지 않습니다.");
             using var client = new CatalogClient(info);
             var fresh = await client.FetchCatalogAsync(token);
             var app = fresh.Apps.Single(a => a.Id == selected.Id);
@@ -542,10 +642,30 @@ internal sealed class MainForm : Form
             await Task.Run(() => process.WaitForExit());
             int exit = process.ExitCode;
             if (exit != 0 && exit != 3010) throw new InvalidOperationException($"설치 프로그램이 완료되지 않았습니다 (종료 코드 {exit}). 기존 설치 버전 기록을 유지합니다.");
-            ShowManager();
-            var result = Dialogs.EditLocal(this, old, app, verifiedRelease, info.Fingerprint);
-            if (result != null) { SaveLocal(result); _status.Text = app.Name + " " + verifiedRelease.Version + " 설치 완료 기록" + (exit == 3010 ? " · Windows 재시작 필요" : ""); }
-            else _status.Text = "설치 확인을 취소했습니다. 기존 설치 버전 기록을 유지합니다.";
+            _status.Text = "설치 결과에서 실행 파일과 버전을 확인하고 있습니다…";
+            LocalProgram? detected = null;
+            var reason = "";
+            for (var attempt = 0; attempt < 6; attempt++)
+            {
+                var after = await Task.Run(InstalledPrograms.Read);
+                detected = after.Find(app, installed ?? old, out reason);
+                if (InstalledPrograms.ConfirmsInstall(detected, verifiedRelease, exit)) break;
+                if (attempt < 5) await Task.Delay(1000);
+            }
+            if (InstalledPrograms.ConfirmsInstall(detected, verifiedRelease, exit))
+            {
+                SaveDetected(detected!, app, info.Fingerprint);
+                _status.Text = app.Name + " " + detected!.InstalledVersion + " · 내 프로그램에 자동 등록했습니다." + (exit == 3010 ? " · Windows 재시작 필요" : "");
+            }
+            else
+            {
+                ShowManager();
+                if (reason.Length == 0) reason = "요청한 버전의 설치 완료를 확인하지 못했습니다. 설치가 취소되었거나 아직 진행 중일 수 있습니다.";
+                var result = Dialogs.EditLocal(this, detected ?? old, app: app, fingerprint: info.Fingerprint, guidance: reason + " 실행 파일과 실제 설치 버전을 확인해 주세요.");
+                if (result != null) { result.InstalledPlatform = Platforms.Current; SaveLocal(result); _status.Text = app.Name + " · 설치 확인 내용을 저장했습니다."; }
+                else _status.Text = "자동 등록을 완료하지 못했습니다. 기존 기록은 유지됩니다. ‘기존 설치 연결’에서 다시 확인할 수 있습니다.";
+            }
+            NotifyAppUpdates();
         });
     }
 
@@ -574,6 +694,7 @@ internal sealed class MainForm : Form
                     var next = AppState.Clone(_state.Settings);
                     next.ManagerNotifiedVersion = update.Release.Version;
                     _state.CommitSettings(next);
+                    _appBalloon = false;
                     _tray.ShowBalloonTip(10000, Program.DisplayName,
                         "새 버전 " + update.Release.Version + "이 있습니다. 알림 또는 트레이의 업데이트 및 재시작 메뉴를 선택하세요.", ToolTipIcon.Info);
                 }
@@ -669,12 +790,15 @@ internal sealed class MainForm : Form
             var next = AppState.Clone(_state.Settings);
             next.HostEnabled = change.HostEnabled; next.Port = change.Port; next.AdvertisedHost = change.Host; next.AutoStart = change.AutoStart; next.PairingProtected = protectedPairing;
             next.ManagerAutoCheck = change.ManagerAutoCheck;
+            next.AppAutoCheck = change.AppAutoCheck;
             _managerUpdate = null;
             _state.CommitSettings(next);
             try
             {
                 if (newCache != null) { _state.Cache = newCache; _state.SaveCache(); }
                 if (next.HostEnabled != previous.HostEnabled || next.Port != previous.Port || next.AdvertisedHost != previous.AdvertisedHost || (next.HostEnabled && _server is null)) await RestartHostAsync();
+                LoadCatalogs();
+                await RefreshInstalledAsync();
                 token.ThrowIfCancellationRequested();
             }
             catch
@@ -709,7 +833,7 @@ internal sealed class MainForm : Form
         _hostStatus.Text = $"다른 PC에 배포할 앱을 선택하고 새 버전을 동기화합니다.\n호스트 실행 중 · {_state.Settings.AdvertisedHost}:{_state.Settings.Port} · 주소·계정·연결 코드는 ‘호스트 설정’에서 관리합니다.{githubStatus}";
     }
 
-    private async Task RunAsync(string message, Func<CancellationToken, Task> work)
+    private async Task RunAsync(string message, Func<CancellationToken, Task> work, bool showErrors = true)
     {
         if (_busy) return;
         _busy = true;
@@ -723,7 +847,7 @@ internal sealed class MainForm : Form
         try { await work(_operation.Token); if (_status.Text == message) _status.Text = "준비 완료"; }
         catch (OperationCanceledException) { _status.Text = "작업이 취소되었습니다."; }
         catch (Exception) when (_operation.IsCancellationRequested) { _status.Text = "작업이 취소되었습니다."; }
-        catch (Exception ex) { _status.Text = "작업 실패 · 기존 프로그램은 계속 실행할 수 있습니다."; ShowError(ex); }
+        catch (Exception ex) { _status.Text = "작업 실패 · 기존 프로그램은 계속 실행할 수 있습니다."; if (showErrors) ShowError(ex); }
         finally
         {
             _operation.Dispose(); _operation = null;
@@ -754,7 +878,7 @@ internal sealed class MainForm : Form
     }
     protected override void Dispose(bool disposing)
     {
-        if (disposing) { _managerTimer.Dispose(); _managerLifetime.Cancel(); _cacheTimer.Dispose(); _tray.Visible = false; _tray.ContextMenuStrip?.Dispose(); _tray.Dispose(); _server?.Dispose(); _managerUpdater.Dispose(); _identity?.Dispose(); _githubApi?.Dispose(); }
+        if (disposing) { _managerTimer.Dispose(); _managerLifetime.Cancel(); _cacheTimer.Dispose(); _tray.Visible = false; _tray.ContextMenuStrip?.Dispose(); _tray.Dispose(); _appUpdateIcon.Dispose(); _server?.Dispose(); _managerUpdater.Dispose(); _identity?.Dispose(); _githubApi?.Dispose(); }
         base.Dispose(disposing);
     }
 }

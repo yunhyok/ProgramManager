@@ -117,7 +117,7 @@ internal static class Dialogs
         }
     }
 
-    public static LocalProgram? EditLocal(IWin32Window owner, LocalProgram? item = null, CatalogApp? app = null, AppRelease? release = null, string fingerprint = "", string? initialPath = null)
+    public static LocalProgram? EditLocal(IWin32Window owner, LocalProgram? item = null, CatalogApp? app = null, AppRelease? release = null, string fingerprint = "", string? initialPath = null, string? guidance = null)
     {
         using var form = new Fields(release is null ? "프로그램 등록 / 편집" : "설치 결과 확인", 465);
         var name = form.TextField("프로그램 이름", item?.Name ?? app?.Name ?? "");
@@ -136,21 +136,21 @@ internal static class Dialogs
                 catch { /* Optional file metadata does not affect launch registration. */ }
             }
         };
-        form.Row("안내", new Label { AutoSize = true, MaximumSize = new Size(410, 0), Text = release is null ? "버전을 모르면 비워 두세요. 바로가기는 Manager 폴더에 복사해 보관합니다. 등록 후 실행을 확인했다면 바탕화면 바로가기를 정리해도 됩니다." : "설치 프로그램에서 설치가 완료되었는지 확인한 뒤, 설치된 프로그램의 실행 파일을 선택하세요. 저장할 때 이 버전을 설치 완료로 기록합니다." });
+        form.Row("안내", new Label { AutoSize = true, MaximumSize = new Size(410, 0), Text = guidance ?? (release is null ? "버전을 모르면 비워 두세요. 바로가기는 Manager 폴더에 복사해 보관합니다. 등록 후 실행을 확인했다면 바탕화면 바로가기를 정리해도 됩니다." : "설치 프로그램에서 설치가 완료되었는지 확인한 뒤, 설치된 프로그램의 실행 파일을 선택하세요. 저장할 때 이 버전을 설치 완료로 기록합니다.") });
         LocalProgram? result = null;
         form.Finish(release is null ? "저장" : "설치 완료 기록", () =>
         {
             if (string.IsNullOrWhiteSpace(name.Text)) throw new InvalidDataException("프로그램 이름을 입력하세요.");
             AppState.ValidateLaunchPath(path.Text.Trim());
             if (version.Text.Trim().Length > 0) Platforms.Numeric(version.Text.Trim());
-            result = new LocalProgram { Id = item?.Id ?? Guid.NewGuid().ToString("N"), Name = name.Text.Trim(), Path = path.Text.Trim(), InstalledVersion = version.Text.Trim(), CatalogId = app?.Id ?? item?.CatalogId ?? "", HostFingerprint = app is null ? item?.HostFingerprint ?? "" : fingerprint, InstalledPlatform = release?.Platform ?? item?.InstalledPlatform ?? "" };
+            result = new LocalProgram { Id = item?.Id ?? Guid.NewGuid().ToString("N"), Name = name.Text.Trim(), Path = path.Text.Trim(), InstalledVersion = version.Text.Trim(), CatalogId = app?.Id ?? item?.CatalogId ?? "", HostFingerprint = app is null ? item?.HostFingerprint ?? "" : fingerprint, InstalledPlatform = release?.Platform ?? item?.InstalledPlatform ?? "", InstallationKey = item?.Path == path.Text.Trim() ? item.InstallationKey : "" };
         });
         return form.ShowDialog(owner) == DialogResult.OK ? result : null;
     }
 
     public sealed class SettingsChange
     {
-        public bool HostEnabled, AutoStart, Disconnect, ManagerAutoCheck;
+        public bool HostEnabled, AutoStart, Disconnect, ManagerAutoCheck, AppAutoCheck = true;
         public int Port;
         public string Host = "", NewPairing = "";
     }
@@ -206,6 +206,9 @@ internal static class Dialogs
         Row(general, "Windows 시작", auto);
         var managerAuto = new CheckBox { Text = "시작 시 / 6시간마다 새 버전 확인", AutoSize = true, Checked = state.Settings.ManagerAutoCheck };
         Row(general, "관리 프로그램 업데이트", managerAuto);
+        var appAuto = new CheckBox { Text = "시작 시 / 1시간마다 배포 앱 확인", AutoSize = true, Checked = state.Settings.AppAutoCheck };
+        Row(general, "설치된 앱 업데이트", appAuto);
+        Note(general, "설치 기록과 실행 파일에서 현재 버전을 확인합니다. 새 배포 버전이 있으면 트레이 아이콘의 표시와 메뉴, 알림으로 안내합니다. 설치는 직접 선택할 때 진행합니다.");
 
         var hostIntro = Note(sending, "", true);
         Note(sending, "① 이 PC 주소 확인 → ② 연결 코드 복사 → ③ 받는 PC에 전달\n배포할 앱은 메인 화면 ‘호스트 관리’에서 선택합니다.");
@@ -278,7 +281,7 @@ internal static class Dialogs
             if (role.Checked && string.IsNullOrWhiteSpace(host.Text)) throw new InvalidDataException("호스트 탭에서 이 PC의 내부망 IP 또는 PC 이름을 입력하세요.");
             if (disconnect.Checked && incoming.Text.Trim().Length > 0) throw new InvalidDataException("새 호스트 연결 또는 기존 연결 해제 중 하나만 선택하세요.");
             return new SettingsChange { HostEnabled = role.Checked, Host = host.Text.Trim().Length == 0 ? state.Settings.AdvertisedHost : host.Text.Trim(), Port = (int)port.Value,
-                AutoStart = auto.Checked, ManagerAutoCheck = managerAuto.Checked, NewPairing = incoming.Text.Trim(), Disconnect = disconnect.Checked };
+                AutoStart = auto.Checked, ManagerAutoCheck = managerAuto.Checked, AppAutoCheck = appAuto.Checked, NewPairing = incoming.Text.Trim(), Disconnect = disconnect.Checked };
         }
         async Task ApplyAsync() => await RunAsync(async token =>
         {

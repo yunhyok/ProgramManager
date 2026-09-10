@@ -56,6 +56,24 @@ internal static class Ui
         return grid;
     }
 
+    public static Icon UpdateIcon(Icon original)
+    {
+        using var bitmap = new Bitmap(32, 32);
+        using (var graphics = Graphics.FromImage(bitmap))
+        {
+            graphics.DrawIcon(original, new Rectangle(0, 0, 32, 32));
+            using var badge = new SolidBrush(Color.DarkOrange);
+            graphics.FillEllipse(badge, 15, 15, 17, 17);
+            using var arrow = new Pen(Color.White, 2);
+            graphics.DrawLines(arrow, new Point[] { new(19, 23), new(23, 19), new(27, 23) });
+            graphics.DrawLine(arrow, 23, 20, 23, 28);
+        }
+        var handle = bitmap.GetHicon();
+        try { using var icon = Icon.FromHandle(handle); return (Icon)icon.Clone(); }
+        finally { DestroyIcon(handle); }
+    }
+    [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern bool DestroyIcon(IntPtr icon);
+
     private static void FitHeaders(DataGridView grid)
     {
         foreach (DataGridViewColumn column in grid.Columns)
