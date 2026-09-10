@@ -19,3 +19,17 @@ Local Core and Desktop checks passed for both runtimes. Layout checks passed at 
 The layout runner scrolls the actual nested button into view, rather than its whole containing table. Hosted CI with a smaller desktop skips simulated viewports that exceed its physical screen and still checks the native viewport.
 
 Windows 7 support is checked through the .NET Framework build and cross-runtime tests on current Windows; a physical Windows 7 machine was not exercised in this run.
+
+## Published and installed verification
+
+- Release tag `v0.3.1` points to `df1b06577aea36754565a9f09fd948ff101973e0`. [GitHub Actions run 34445503067](https://github.com/yunhyok/ProgramManager/actions/runs/34445503067) passed both the Windows build and release publication jobs.
+- The first hosted check exposed a legacy ComboBox height mismatch at 96 DPI. The address field now uses a native autosizing container; the fix passed the local 96 DPI reproduction, normal local DPI runs, and hosted checks. The failed, unpublished tag was updated before any 0.3.1 release existed.
+- Both public installers were downloaded through the actual manager updater and validated against product metadata, asset digests, and the published SHA256SUMS file. A client with its Internet HTTP handler blocked received the update through a pinned local TLS host.
+- The published modern installer upgraded the existing installation from 0.3.0 to 0.3.1, backed up prior program files and restarted successfully. All 19 registered programs, nine selected repositories and the settings file were preserved byte-for-byte during installation.
+- The previously unresolvable advertised host name was then changed to an active local IPv4 address while the app was stopped. All other settings were preserved. After restart, an authenticated request using that LAN address returned the nine published apps.
+- Native accessibility inspection confirmed the installed 0.3.1 title, 19 registered programs, and the settings navigation guidance. Real form rendering and layout checks cover the Settings tabs; this environment's native pointer automation was unavailable.
+
+| Published installer | Size | SHA-256 |
+| --- | ---: | --- |
+| ProgramManager-Setup-0.3.1.exe | 51,064,288 | `5fff63299d6fd85d29155bde1dd9f5f1fe5cd5391064e9c2715f47a75e8e122e` |
+| ProgramManager-Setup-0.3.1-win7.exe | 2,426,037 | `3c4596b3863a299e5f48c19dbd9d4e93132822a15657787ddbf9bd007555743e` |
