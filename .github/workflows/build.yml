@@ -1,0 +1,27 @@
+name: Build Program Manager
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Check, publish, and build both installers
+        shell: pwsh
+        run: ./tools/build.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ProgramManager-0.1.0-installers
+          path: artifacts/installers/*
+          if-no-files-found: error
+          retention-days: 14
