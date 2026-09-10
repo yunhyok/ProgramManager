@@ -61,7 +61,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Windows 7 installer compilation failed.' }
 
     $installerRoot = Join-Path $repoRoot 'artifacts\installers'
-    $installers = @('ProgramManager-Setup-0.2.0.exe', 'ProgramManager-Setup-0.2.0-win7.exe')
+    $installers = @('ProgramManager-Setup-0.2.1.exe', 'ProgramManager-Setup-0.2.1-win7.exe')
     $hashes = foreach ($name in $installers) {
         $file = Get-Item -LiteralPath (Join-Path $installerRoot $name)
         if ($file.Length -eq 0) { throw "Installer is empty: $name" }
@@ -69,7 +69,7 @@ try {
         '{0}  {1}' -f $hash.Hash.ToLowerInvariant(), $file.Name
     }
     $hashes | Set-Content -LiteralPath (Join-Path $installerRoot 'SHA256SUMS.txt') -Encoding ascii
-    Write-Host "Program Manager 0.2.0 installers: $installerRoot"
+    Write-Host "Program Manager 0.2.1 installers: $installerRoot"
 } finally {
     Pop-Location
 }

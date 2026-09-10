@@ -16,7 +16,7 @@ internal static class Dialogs
         form.MinimumSize = new Size(560, 400);
         form.StartPosition = FormStartPosition.CenterParent;
         var browser = new WebBrowser { Dock = DockStyle.Fill, AllowWebBrowserDrop = false, IsWebBrowserContextMenuEnabled = false, ScriptErrorsSuppressed = true };
-        browser.Navigating += (_, e) => e.Cancel = !e.Url.IsFile || !string.Equals(e.Url.LocalPath, path, StringComparison.OrdinalIgnoreCase);
+        browser.Navigating += (_, e) => e.Cancel = e.Url is null || !e.Url.IsFile || !string.Equals(e.Url.LocalPath, path, StringComparison.OrdinalIgnoreCase);
         browser.NewWindow += (_, e) => e.Cancel = true;
         void FitDocument()
         {
@@ -26,7 +26,7 @@ internal static class Dialogs
             if (section.Length > 0) browser.Document.GetElementById(section)?.ScrollIntoView(true);
             body.ScrollLeft = 0;
             var html = browser.Document.GetElementsByTagName("html");
-            if (html.Count > 0) html[0].ScrollLeft = 0;
+            if (html.Count > 0 && html[0] is { } documentRoot) documentRoot.ScrollLeft = 0;
         }
         browser.DocumentCompleted += (_, _) => FitDocument();
         form.FontChanged += (_, _) => FitDocument();

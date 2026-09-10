@@ -1,4 +1,4 @@
-# Program Manager 0.2.0
+# Program Manager 0.2.1
 
 개인 개발 프로그램을 트레이의 목록에서 실행하고, GitHub Releases의 프로그램을 내부망 PC에 배포하는 Windows 앱입니다. **호스트에서 배포할 저장소를 선택하면 클라이언트는 그 목록에서 설치합니다.** 인터넷이 없는 클라이언트도 사용할 수 있습니다.
 
@@ -13,6 +13,8 @@
 | **호스트 관리** | 배포할 GitHub 저장소 선택·릴리스 목록 동기화 | **호스트 켜기** 선택 |
 
 호스트도 같은 앱에서 자신의 프로그램을 설치할 수 있습니다. 창을 닫으면 트레이에 남으며, 트레이 메뉴의 **종료**로 완전히 종료합니다.
+
+트레이 아이콘을 **오른쪽 클릭**하면 메뉴 맨 위에 최근 실행한 프로그램이 최대 5개 표시됩니다. 항목을 클릭하면 바로 실행합니다. Manager에서 실행한 등록 프로그램만 중복 없이 최근 순서로 기록하며, Manager를 다시 실행해도 유지합니다. 등록 이름·경로를 편집하면 최근 항목에도 반영되고, 등록을 제거하면 최근 목록에서도 사라집니다. 과거 실행 이력은 자동으로 채우지 않으므로 처음에는 비어 있습니다.
 
 ## 빠른 시작
 
@@ -36,8 +38,8 @@
 
 | 컴퓨터 | 설치 파일 | 런타임 |
 | --- | --- | --- |
-| Windows 10/11 64비트 | `ProgramManager-Setup-0.2.0.exe` | .NET 8 포함 |
-| Windows 7 SP1 / 8 계열 | `ProgramManager-Setup-0.2.0-win7.exe` | .NET Framework 4.8 사전 설치 필요 |
+| Windows 10/11 64비트 | `ProgramManager-Setup-0.2.1.exe` | .NET 8 포함 |
+| Windows 7 SP1 / 8 계열 | `ProgramManager-Setup-0.2.1-win7.exe` | .NET Framework 4.8 사전 설치 필요 |
 
 기본 설치 위치는 `%LOCALAPPDATA%\Programs\Program Manager`입니다. 시작 메뉴에서 실행할 수 있고, 바탕화면 바로가기는 기본으로 만들지 않습니다. Windows 로그인 시 자동 실행은 설치 옵션 또는 앱 설정에서 선택합니다.
 
@@ -99,7 +101,7 @@ Windows, .NET SDK 8, Inno Setup 6.3 이상 6.x가 필요합니다. .NET Framewor
 
 `.github/workflows/build.yml`은 빌드와 검사를 실행하고 설치 파일을 Actions 아티팩트로 보관합니다. 현재 이 프로젝트의 원격 저장소는 구성되지 않았습니다. 앱이 다른 GitHub 저장소를 조회하는 기능과 Program Manager 자체의 원격 CI·Release 게시 여부는 별개입니다.
 
-현재 결과는 [0.2.0 GitHub 배포·UI 검증 기록](docs/verification-0.2.0.md)에 있습니다. Windows 7 실기기와 두 번째 물리 PC에서의 설치·통신은 별도 확인이 필요합니다. 최신 Windows에서 `net48`을 실행한 결과만으로 Windows 7 호환성을 확정하지 않습니다. 이전 결과는 [0.1.1 UI 검증 기록](docs/verification-0.1.1.md), [0.1.0 검증 기록](docs/verification.md)에 있습니다.
+최근 실행 메뉴와 현재 PC 업데이트 결과는 [0.2.1 검증 기록](docs/verification-0.2.1.md), GitHub 배포 검증은 [0.2.0 검증 기록](docs/verification-0.2.0.md)에 있습니다. Windows 7 실기기와 두 번째 물리 PC에서의 설치·통신은 별도 확인이 필요합니다. 최신 Windows에서 `net48`을 실행한 결과만으로 Windows 7 호환성을 확정하지 않습니다. 이전 결과는 [0.1.1 UI 검증 기록](docs/verification-0.1.1.md), [0.1.0 검증 기록](docs/verification.md)에 있습니다.
 
 설치 프로그램의 실제 설치 위치는 제품마다 달라 사용자가 실행 경로를 확인합니다. 원격 무인 설치, 자동 롤백, 호스트 자동 검색, Windows 서비스와 인터넷 중계는 제공하지 않습니다.
 

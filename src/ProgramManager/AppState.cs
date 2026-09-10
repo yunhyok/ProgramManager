@@ -26,6 +26,7 @@ public sealed class UserSettings
     public bool AutoStart { get; set; }
     public string PairingProtected { get; set; } = "";
     public List<LocalProgram> Programs { get; set; } = [];
+    public List<string> RecentProgramIds { get; set; } = [];
     public string GitHubOwner { get; set; } = "";
     public bool UseGitHubCli { get; set; } = true;
     public string GitHubTokenProtected { get; set; } = "";
@@ -68,6 +69,19 @@ public sealed class AppState
     public void SaveCache() { ValidateCache(Cache); JsonFiles.Write(Path.Combine(Root, "cache.json"), Cache); }
     public PairingInfo? Pairing => string.IsNullOrWhiteSpace(Settings.PairingProtected) ? null : PairingInfo.Parse(Secrets.Unprotect(Settings.PairingProtected));
     public LocalProgram? FindInstalled(string id, string fingerprint) => Settings.Programs.FirstOrDefault(p => p.CatalogId == id && p.HostFingerprint == fingerprint);
+    public IReadOnlyList<LocalProgram> RecentPrograms => Settings.RecentProgramIds
+        .Select(id => Settings.Programs.FirstOrDefault(p => p.Id.Equals(id, StringComparison.OrdinalIgnoreCase)))
+        .Where(p => p != null).Cast<LocalProgram>().Take(5).ToList();
+
+    internal void RecordLaunch(string id)
+    {
+        var next = Clone(Settings);
+        var current = next.Programs.FirstOrDefault(p => p.Id.Equals(id, StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidDataException("실행 목록에서 제거된 프로그램입니다.");
+        next.RecentProgramIds = new[] { current.Id }.Concat(RecentPrograms.Select(p => p.Id))
+            .Distinct(StringComparer.OrdinalIgnoreCase).Take(5).ToList();
+        CommitSettings(next);
+    }
 
     public LocalProgram SaveProgram(LocalProgram item)
     {
@@ -155,6 +169,9 @@ public sealed class AppState
         try
         {
             if (settings is null || settings.Programs is null || settings.Programs.Count > 1000 || settings.Programs.Any(p => p is null)) throw new InvalidDataException("프로그램 목록이 비어 있거나 너무 큽니다.");
+            if (settings.RecentProgramIds is null || settings.RecentProgramIds.Count > 5 || settings.RecentProgramIds.Any(id => !Guid.TryParse(id, out _))
+                || settings.RecentProgramIds.Distinct(StringComparer.OrdinalIgnoreCase).Count() != settings.RecentProgramIds.Count)
+                throw new InvalidDataException("최근 실행 목록이 올바르지 않습니다.");
             new PairingInfo { Host = settings.AdvertisedHost, Port = settings.Port, Fingerprint = new string('0', 64), Token = new string('0', 64) }.Validate();
             CatalogRules.Text(settings.PairingProtected, 20000);
             CatalogRules.Text(settings.GitHubOwner, 100);
@@ -209,10 +226,15 @@ public sealed class AppState
             throw new InvalidDataException("존재하는 실행 파일(.exe) 또는 바로가기(.lnk)를 선택하세요.");
     }
 
-    public static void Launch(LocalProgram item)
+    public void Launch(LocalProgram item)
     {
-        ValidateLaunchPath(item.Path);
-        Process.Start(new ProcessStartInfo(item.Path) { UseShellExecute = true, WorkingDirectory = System.IO.Path.GetDirectoryName(item.Path)! });
+        var current = Settings.Programs.FirstOrDefault(p => p.Id == item.Id)
+            ?? throw new InvalidDataException("실행 목록에서 제거된 프로그램입니다.");
+        ValidateLaunchPath(current.Path);
+        using var process = Process.Start(new ProcessStartInfo(current.Path) { UseShellExecute = true, WorkingDirectory = System.IO.Path.GetDirectoryName(current.Path)! });
+        try { RecordLaunch(current.Id); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        { throw new IOException("프로그램은 실행했지만 최근 실행 기록을 저장하지 못했습니다. " + ex.Message, ex); }
     }
 
 }

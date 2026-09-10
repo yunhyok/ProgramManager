@@ -35,7 +35,8 @@ internal static class DesktopCheckRunner
                 return 0;
             }
             Checks(root);
-            Console.WriteLine("PASS: copied Windows shortcut preserves target/arguments/working directory; deletion-safe launcher; stable dedup; settings/program rollback; corrupt/null JSON rejection; platform numeric ordering");
+            CheckRecentPrograms(root);
+            Console.WriteLine("PASS: copied Windows shortcut preserves target/arguments/working directory; deletion-safe launcher; stable dedup; settings/program rollback; corrupt/null JSON rejection; platform numeric ordering; recent five history and tray dispatch");
             return 0;
         }
         catch (Exception ex) { Console.Error.WriteLine(ex); return 1; }
@@ -99,9 +100,9 @@ internal static class DesktopCheckRunner
                 {
                     var browser = dialog.Controls.OfType<WebBrowser>().Single();
                     if (browser.ReadyState != WebBrowserReadyState.Complete) return;
-                    Assert(browser.Document?.GetElementById("host") != null && browser.Document.Body.InnerText.Contains("GitHub") && browser.Url.Fragment == "#host", "installed HTML viewer loads real guide and selected section without browser association");
+                    Assert(browser.Document?.GetElementById("host") != null && browser.Document?.Body?.InnerText?.Contains("GitHub") == true && browser.Url?.Fragment == "#host", "installed HTML viewer loads real guide and selected section without browser association");
                     browser.Navigate("https://example.invalid/");
-                    Assert(browser.Url.IsFile, "offline viewer blocks external navigation");
+                    Assert(browser.Url?.IsFile == true, "offline viewer blocks external navigation");
                 }
                 Application.Idle -= capture;
                 layout?.Prepare(dialog);
@@ -241,6 +242,117 @@ internal static class DesktopCheckRunner
         }
         finally { Application.Idle -= save; }
     }
+
+    private static void CheckRecentPrograms(string root)
+    {
+        var appRoot = Path.Combine(root, "recent-programs");
+        var state = new AppState(appRoot);
+        var programs = new List<LocalProgram>();
+        for (var index = 0; index < 7; index++)
+        {
+            var path = Path.Combine(appRoot, "recent-" + index + ".exe");
+            File.WriteAllBytes(path, new byte[] { 0x4d, 0x5a }); // Registered test files are never executed.
+            programs.Add(state.SaveProgram(new LocalProgram { Name = "Recent program " + index, Path = path }));
+        }
+        var settingsPath = Path.Combine(appRoot, "settings.json");
+        // Exercise the on-disk settings format used before recent history existed.
+        File.WriteAllText(settingsPath, JsonSerializer.Serialize(new { Programs = state.Settings.Programs, AutoStart = state.Settings.AutoStart }));
+        state = new AppState(appRoot);
+        Assert(state.Settings.RecentProgramIds.Count == 0 && state.RecentPrograms.Count == 0 && state.Settings.Programs.Count == 7, "legacy settings keep programs and default to empty recent history");
+        using var form = new MainForm(state, false);
+        using var menu = new ContextMenuStrip();
+        form.PopulateTrayMenu(menu);
+        Assert(menu.Items[0].Text == "최근 실행" && !menu.Items[0].Enabled && menu.Items[1].Tag is null && !menu.Items[1].Enabled, "empty recent tray has disabled heading and placeholder");
+
+        foreach (var program in programs) state.RecordLaunch(program.Id);
+        var latestFive = programs.Skip(2).Reverse().Select(p => p.Id).ToArray();
+        Assert(state.Settings.RecentProgramIds.SequenceEqual(latestFive) && state.RecentPrograms.Select(p => p.Id).SequenceEqual(latestFive), "seven launches retain five most recent IDs in descending order");
+        state.RecordLaunch(programs[3].Id);
+        var deduplicated = new[] { programs[3].Id, programs[6].Id, programs[5].Id, programs[4].Id, programs[2].Id };
+        Assert(state.Settings.RecentProgramIds.SequenceEqual(deduplicated), "repeat launch moves existing entry to top without duplicates");
+        Assert(new AppState(appRoot).RecentPrograms.Select(p => p.Id).SequenceEqual(deduplicated), "recent history survives settings reload");
+
+        var beforeFailedSave = File.ReadAllText(settingsPath);
+        using (var locked = new FileStream(settingsPath, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            Reject(() => state.RecordLaunch(programs[0].Id), "recent history settings write failure");
+            Assert(state.Settings.RecentProgramIds.SequenceEqual(deduplicated), "failed history write leaves live order unchanged");
+        }
+        Assert(File.ReadAllText(settingsPath) == beforeFailedSave, "failed history write preserves settings file");
+
+        var renamed = AppState.Clone(state.Settings.Programs.Single(p => p.Id == programs[3].Id));
+        renamed.Name = "Renamed & current";
+        state.SaveProgram(renamed);
+        Assert(state.RecentPrograms[0].Name == renamed.Name && ReferenceEquals(state.RecentPrograms[0], state.Settings.Programs.Single(p => p.Id == renamed.Id)), "recent entries resolve current registered objects and renamed names");
+        form.PopulateTrayMenu(menu);
+        Assert(RecentItems(menu).First().Text == "Renamed && current", "recent menu escapes ampersands without changing program names");
+        var next = AppState.Clone(state.Settings);
+        next.Programs.RemoveAll(p => p.Id == programs[3].Id);
+        state.CommitSettings(next);
+        Assert(state.RecentPrograms.Select(p => p.Id).SequenceEqual(deduplicated.Skip(1)), "deleted registration disappears from recent programs");
+        Assert(new AppState(appRoot).RecentPrograms.All(p => p.Id != programs[3].Id), "deleted registration stays absent after reload");
+
+        var missing = state.Settings.Programs.Single(p => p.Id == programs[6].Id);
+        File.Delete(missing.Path);
+        var beforeFailedLaunch = state.Settings.RecentProgramIds.ToArray();
+        Reject(() => state.Launch(missing), "missing executable launch");
+        Assert(state.Settings.RecentProgramIds.SequenceEqual(beforeFailedLaunch), "failed launch does not change recent history");
+        form.PopulateTrayMenu(menu);
+        Assert(!RecentItems(menu).Single(item => (string)item.Tag! == missing.Id).Enabled, "recent menu disables missing executable");
+
+        var search = (TextBox)typeof(MainForm).GetField("_search", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(form)!;
+        var localGrid = (DataGridView)typeof(MainForm).GetField("_local", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(form)!;
+        search.Text = "no-matching-program-" + Guid.NewGuid().ToString("N");
+        Assert(localGrid.Rows.Count == 0, "search removes all visible local rows for tray independence check");
+        form.PopulateTrayMenu(menu);
+        Assert(RecentItems(menu).Select(item => (string)item.Tag!).SequenceEqual(state.RecentPrograms.Select(p => p.Id)), "recent tray is independent of visible list filter");
+        var busy = typeof(MainForm).GetField("_busy", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        busy.SetValue(form, true);
+        try
+        {
+            form.PopulateTrayMenu(menu);
+            Assert(RecentItems(menu).All(item => !item.Enabled), "recent launch menu disabled during a managed operation");
+        }
+        finally { busy.SetValue(form, false); }
+
+        // No user application is launched: rundll32 without a DLL/entrypoint exits immediately.
+        var harmlessPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "rundll32.exe");
+        Assert(File.Exists(harmlessPath), "Windows no-argument launch fixture exists");
+        var harmless = state.SaveProgram(new LocalProgram { Name = "Windows no-argument launch", Path = harmlessPath });
+        state.RecordLaunch(harmless.Id);
+        state.RecordLaunch(programs[0].Id);
+        form.PopulateTrayMenu(menu);
+        var clickable = RecentItems(menu).Single(item => (string)item.Tag! == harmless.Id);
+        Assert(clickable.Enabled && state.Settings.RecentProgramIds[0] != harmless.Id, "registered harmless launch is available below most recent entry");
+        // A stale caller must resolve the registered path instead of launching caller-provided data.
+        harmless.Name = "Current & launch";
+        state.SaveProgram(harmless);
+        var stale = AppState.Clone(harmless);
+        stale.Path = Path.Combine(appRoot, "stale-path-must-not-run.exe");
+        state.Launch(stale);
+        state.RecordLaunch(programs[0].Id);
+        clickable.PerformClick();
+        Assert(state.Settings.RecentProgramIds[0] == harmless.Id && state.RecentPrograms[0].Name == "Current & launch", "actual tray click launches current registered program and records it first");
+        Assert(new AppState(appRoot).RecentPrograms[0].Id == harmless.Id, "tray click history is persisted");
+        form.PopulateTrayMenu(menu);
+        Assert(RecentItems(menu).First().Text == "Current && launch" && RecentItems(menu).Count() <= 5, "reopened tray shows current escaped name and at most five entries");
+
+        var artifactDirectory = Environment.GetEnvironmentVariable("PROGRAM_MANAGER_TRAY_CHECK_ARTIFACTS");
+        if (!string.IsNullOrWhiteSpace(artifactDirectory))
+        {
+            artifactDirectory = Path.GetFullPath(artifactDirectory);
+            Directory.CreateDirectory(artifactDirectory);
+            menu.Show(new Point(40, 40));
+            Application.DoEvents();
+            using var bitmap = new Bitmap(menu.Width, menu.Height);
+            menu.DrawToBitmap(bitmap, new Rectangle(Point.Empty, menu.Size));
+            bitmap.Save(Path.Combine(artifactDirectory, "program-manager-recent-tray.png"), System.Drawing.Imaging.ImageFormat.Png);
+            File.WriteAllLines(Path.Combine(artifactDirectory, "program-manager-recent-tray.txt"), menu.Items.Cast<ToolStripItem>().Select(item => $"{item.GetType().Name}: text={item.Text}; enabled={item.Enabled}; bounds={item.Bounds}; registeredId={item.Tag}"));
+            menu.Close();
+        }
+    }
+
+    private static IEnumerable<ToolStripMenuItem> RecentItems(ContextMenuStrip menu) => menu.Items.OfType<ToolStripMenuItem>().Where(item => item.Tag is string id && Guid.TryParse(id, out _));
 
     private static void MakeShortcut(string path, string target, string arguments, string workingDirectory)
     {

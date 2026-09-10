@@ -126,12 +126,8 @@ internal sealed class MainForm : Form
         Controls.Add(shell);
         Controls.Add(statusStrip);
         var menu = new ContextMenuStrip();
-        menu.Items.Add(Program.DisplayName, null, (_, _) => ShowManager());
-        menu.Items.Add("프로그램 목록", null, (_, _) => { _tabs.SelectedIndex = 0; ShowManager(); });
-        menu.Items.Add("업데이트 확인", null, async (_, _) => { ShowManager(); _tabs.SelectedIndex = 1; await RefreshAsync(); });
-        menu.Items.Add("설정", null, async (_, _) => { ShowManager(); await SettingsAsync(); });
-        menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("종료", null, async (_, _) => await QuitAsync());
+        PopulateTrayMenu(menu);
+        menu.Opening += (_, _) => PopulateTrayMenu(menu);
         _tray = new NotifyIcon { Icon = Icon, Text = Program.DisplayName, Visible = true, ContextMenuStrip = menu };
         _tray.MouseClick += (_, e) => { if (e.Button == MouseButtons.Left) ShowManager(); };
         FormClosing += (_, e) =>
@@ -150,6 +146,32 @@ internal sealed class MainForm : Form
         _cacheTimer.Start();
         Render();
         ResumeLayout(true);
+    }
+
+    internal void PopulateTrayMenu(ContextMenuStrip menu)
+    {
+        foreach (var item in menu.Items.Cast<ToolStripItem>().ToArray()) item.Dispose();
+        menu.Items.Clear();
+        menu.Items.Add(new ToolStripMenuItem("최근 실행") { Enabled = false });
+        var recent = _state.RecentPrograms;
+        if (recent.Count == 0) menu.Items.Add(new ToolStripMenuItem("아직 실행한 프로그램이 없습니다") { Enabled = false });
+        foreach (var program in recent)
+        {
+            var entry = new ToolStripMenuItem(program.Name.Replace("&", "&&"), null, (_, _) => Launch(program))
+            {
+                Tag = program.Id,
+                Enabled = !_busy && File.Exists(program.Path),
+                ToolTipText = File.Exists(program.Path) ? program.Path : "파일이 없습니다. 프로그램 목록에서 실행 경로를 확인하세요."
+            };
+            menu.Items.Add(entry);
+        }
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(Program.DisplayName, null, (_, _) => ShowManager());
+        menu.Items.Add("프로그램 목록", null, (_, _) => { _tabs.SelectedIndex = 0; ShowManager(); });
+        menu.Items.Add("업데이트 확인", null, async (_, _) => { ShowManager(); _tabs.SelectedIndex = 1; await RefreshAsync(); });
+        menu.Items.Add("설정", null, async (_, _) => { ShowManager(); await SettingsAsync(); });
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add("종료", null, async (_, _) => await QuitAsync());
     }
 
     private static TabPage Page(string text, Control toolbar, Control body, Control? note = null)
@@ -275,11 +297,11 @@ internal sealed class MainForm : Form
         Render();
     }
 
-    private void Launch()
+    private void Launch(LocalProgram? program = null)
     {
-        var item = Selected<LocalProgram>(_local);
-        if (item is null) return;
-        try { AppState.Launch(item); _status.Text = item.Name + " 실행 요청 완료"; }
+        var item = program ?? Selected<LocalProgram>(_local);
+        if (_busy || item is null) return;
+        try { _state.Launch(item); _status.Text = item.Name + " 실행 요청 완료"; }
         catch (Exception ex) { ShowError(ex); }
     }
 
@@ -602,7 +624,7 @@ internal sealed class MainForm : Form
     }
     protected override void Dispose(bool disposing)
     {
-        if (disposing) { _cacheTimer.Dispose(); _tray.Visible = false; _tray.Dispose(); _server?.Dispose(); _identity?.Dispose(); _githubApi?.Dispose(); }
+        if (disposing) { _cacheTimer.Dispose(); _tray.Visible = false; _tray.ContextMenuStrip?.Dispose(); _tray.Dispose(); _server?.Dispose(); _identity?.Dispose(); _githubApi?.Dispose(); }
         base.Dispose(disposing);
     }
 }
