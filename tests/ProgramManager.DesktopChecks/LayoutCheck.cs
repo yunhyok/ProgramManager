@@ -29,10 +29,11 @@ internal sealed class LayoutCheck
         // A constrained logical viewport, retaining the production minimum width.
         var logicalViewport = form is ProgramManager.MainForm ? new Size(900, 650) : new Size(560, 450);
         var viewport = new Size(logicalViewport.Width * _percent / 100, logicalViewport.Height * _percent / 100);
-        form.ClientSize = new Size(Math.Min(form.ClientSize.Width, viewport.Width), Math.Min(form.ClientSize.Height, viewport.Height));
+        form.ClientSize = viewport;
         form.ResumeLayout(true);
         form.PerformLayout();
         Application.DoEvents();
+        Check(form.ClientSize == viewport, "simulated-" + _percent, $"requested viewport {viewport} was clamped to {form.ClientSize}");
         Observations.Add($"simulated-{_percent}: {form.Text}; actual DPI={actualDpi}; DeviceDpi={form.DeviceDpi}; client={form.ClientSize}");
     }
 

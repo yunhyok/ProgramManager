@@ -23,14 +23,26 @@ internal static class DesktopCheckRunner
             {
                 var failures = new List<string>();
                 var observations = new List<string>();
+                var skippedModes = 0;
                 foreach (var percent in new[] { 0, 100, 125, 150, 200, 250 })
                 {
+                    // WinForms caps top-level windows to the physical desktop. A small CI desktop
+                    // cannot represent the simulated 900x650 logical viewport at larger scales.
+                    var available = Screen.PrimaryScreen!.WorkingArea.Size;
+                    var border = SystemInformation.FrameBorderSize;
+                    if (percent > 0 && (900 * percent / 100 + 2 * border.Width > available.Width || 650 * percent / 100 + 2 * border.Height + SystemInformation.CaptionHeight > available.Height))
+                    {
+                        var skipped = $"SKIP simulated-{percent}: the 900x650 logical viewport exceeds this {available.Width}x{available.Height} desktop. Native checks still run; use a larger desktop for this simulation.";
+                        observations.Add(skipped); Console.WriteLine(skipped);
+                        skippedModes++;
+                        continue;
+                    }
                     var run = new LayoutCheck(percent, failures);
                     Render(Path.Combine(root, percent.ToString()), Path.Combine(args[1], percent == 0 ? "native" : "simulated-" + percent), run);
                     observations.AddRange(run.Observations);
                 }
                 Directory.CreateDirectory(args[1]);
-                File.WriteAllLines(Path.Combine(args[1], "layout-report.txt"), new[] { "Native run uses production SystemAware DPI. Other runs simulate scaled fonts/geometry in a constrained logical viewport; they do not change monitor DPI or Windows settings." }.Concat(observations).Concat(failures.Count == 0 ? new[] { "PASS: all layout checks" } : failures));
+                File.WriteAllLines(Path.Combine(args[1], "layout-report.txt"), new[] { "Native run uses production SystemAware DPI. Other runs simulate scaled fonts/geometry in a constrained logical viewport; they do not change monitor DPI or Windows settings." }.Concat(observations).Concat(failures.Count == 0 ? new[] { $"PASS: all attempted layout checks; {skippedModes} simulated modes skipped" } : failures));
                 Assert(failures.Count == 0, failures.Count + " layout issues; see layout-report.txt");
                 return 0;
             }
