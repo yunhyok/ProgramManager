@@ -209,11 +209,13 @@ internal static class Dialogs
 
         var hostIntro = Note(sending, "", true);
         Note(sending, "① 이 PC 주소 확인 → ② 연결 코드 복사 → ③ 받는 PC에 전달\n배포할 앱은 메인 화면 ‘호스트 관리’에서 선택합니다.");
-        var host = new ComboBox { Name = "HostAddress", AccessibleName = "이 호스트 PC의 내부망 주소", DropDownStyle = ComboBoxStyle.DropDown };
+        var host = new ComboBox { Name = "HostAddress", AccessibleName = "이 호스트 PC의 내부망 주소", DropDownStyle = ComboBoxStyle.DropDown, Dock = DockStyle.Top };
         var addresses = ConnectionSettings.LocalAddresses();
         host.Items.AddRange(addresses.Cast<object>().ToArray());
         host.Text = state.Settings.AdvertisedHost;
-        Row(sending, "이 호스트 PC의 주소", host);
+        var hostField = new Panel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink };
+        hostField.Controls.Add(host);
+        Row(sending, "이 호스트 PC의 주소", hostField);
         Note(sending, "보내는 PC의 내부망 IP를 목록에서 고르세요. 내부망에서 찾을 수 있는 이 PC의 이름도 사용할 수 있습니다.");
         var port = new NumericUpDown { Name = "HostPort", Minimum = 1024, Maximum = 65535, Value = state.Settings.Port };
         Row(sending, "호스트 수신 포트", port);
