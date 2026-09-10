@@ -47,10 +47,10 @@ internal static class InstalledProgramsChecks
             Assert(File.ReadAllBytes(saved.Path).SequenceEqual(previousBytes), "shortcut arguments and bytes are preserved");
             DesktopCheckRunner.ReadShortcut(saved.Path, executable, "--profile custom", folder);
             using var menu = new ContextMenuStrip(); form.PopulateTrayMenu(menu);
-            var updates = menu.Items.OfType<ToolStripMenuItem>().Single(i => i.Text == "앱 업데이트 1개");
+            var updates = menu.Items.OfType<ToolStripMenuItem>().Single(i => i.Text == "업데이트 1개");
             Assert(updates.DropDownItems[0].Text!.Contains("1.2.3 → 2.0"), "tray identifies current and available versions");
             var tray = (NotifyIcon)typeof(MainForm).GetField("_tray", Flags)!.GetValue(form)!;
-            Assert(tray.Text.Contains("앱 업데이트 1개") && tray.Icon == typeof(MainForm).GetField("_appUpdateIcon", Flags)!.GetValue(form), "tray tooltip and badge signal an available update");
+            Assert(tray.Text.Contains("업데이트 1개") && tray.Icon == typeof(MainForm).GetField("_appUpdateIcon", Flags)!.GetValue(form), "tray tooltip and badge signal an available update");
             var artifacts = Environment.GetEnvironmentVariable("PROGRAM_MANAGER_TRAY_CHECK_ARTIFACTS");
             if (!string.IsNullOrWhiteSpace(artifacts))
             {
@@ -63,6 +63,11 @@ internal static class InstalledProgramsChecks
             }
             ((ToolStripMenuItem)updates.DropDownItems[0]).PerformClick();
             Assert(((TabControl)typeof(MainForm).GetField("_tabs", Flags)!.GetValue(form)!).SelectedIndex == 1, "tray update selection opens the distribution catalog");
+            typeof(MainForm).GetField("_managerUpdate", Flags)!.SetValue(form, new ManagerUpdate { Release = new AppRelease { Version = "0.10.0", Platform = Platforms.Current } });
+            form.PopulateTrayMenu(menu);
+            var combined = menu.Items.OfType<ToolStripMenuItem>().Single(i => i.Text == "업데이트 2개");
+            Assert(combined.DropDownItems.Count == 2 && combined.DropDownItems[0].Text!.StartsWith("Program Manager ", StringComparison.Ordinal) && combined.DropDownItems[1].Text!.Contains(saved.Name), "self and app updates share one menu with identifiable targets");
+            typeof(MainForm).GetField("_managerUpdate", Flags)!.SetValue(form, null);
             var stale = AppState.Clone(saved); stale.InstalledVersion = "0.0.1"; state.SaveProgram(stale);
             var fileVersion = InstalledPrograms.FileVersion(executable);
             app.Releases[0].Version = fileVersion;
@@ -70,7 +75,7 @@ internal static class InstalledProgramsChecks
             PumpUntil(() => refresh.IsCompleted); refresh.GetAwaiter().GetResult();
             Assert(state.Settings.Programs[0].InstalledVersion == fileVersion, "refresh replaces a stale record with actual executable version metadata: actual=" + state.Settings.Programs[0].InstalledVersion + ", expected=" + fileVersion);
             form.PopulateTrayMenu(menu);
-            Assert(menu.Items.Cast<ToolStripItem>().Any(i => i.Text == "앱 업데이트 0개") && tray.Icon == form.Icon, "update indication clears after actual installed version catches up");
+            Assert(!menu.Items.Cast<ToolStripItem>().Any(i => i.Text?.Contains("0개") == true) && tray.Icon == form.Icon, "empty update entry and badge disappear after installed version catches up");
             var unknown = AppState.Clone(saved); unknown.InstalledVersion = "";
             Assert(!InstalledPrograms.IsUpdate(unknown, app.Releases[0]), "unknown version never produces a false update");
             var other = AppState.Clone(saved); other.InstalledPlatform = Platforms.Current == Platforms.Modern ? Platforms.Legacy : Platforms.Modern;

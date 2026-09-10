@@ -34,7 +34,7 @@ internal sealed class MainForm : Form
     private readonly CancellationTokenSource _managerLifetime = new();
     private readonly ManagerUpdater _managerUpdater;
     private ManagerUpdate? _managerUpdate;
-    private bool _checkingManager;
+    private bool _checkingManager, _checkingUpdates;
     private readonly Button _enableHost;
     private CancellationTokenSource? _operation;
     private bool _busy, _quitting, _settingsOpen;
@@ -158,7 +158,7 @@ internal sealed class MainForm : Form
         };
         _cacheTimer.Tick += async (_, _) =>
         {
-            if (_busy || _settingsOpen) return;
+            if (_busy || _settingsOpen || _checkingUpdates) return;
             CleanupTemporaryFiles(false);
             if (_state.Settings.AppAutoCheck) await RefreshAsync(false);
         };
@@ -189,14 +189,16 @@ internal sealed class MainForm : Form
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(Program.DisplayName, null, (_, _) => ShowManager());
         menu.Items.Add("프로그램 목록", null, (_, _) => { _tabs.SelectedIndex = 0; ShowManager(); });
-        var updates = new ToolStripMenuItem("앱 업데이트 " + _appUpdates.Count + "개") { Enabled = _appUpdates.Count > 0 && !_busy };
-        foreach (var appUpdate in _appUpdates)
-            updates.DropDownItems.Add(appUpdate.Program.Name.Replace("&", "&&") + "  " + appUpdate.Program.InstalledVersion + " → " + appUpdate.Release.Version, null, (_, _) => ShowAppUpdate(appUpdate.App.Id));
-        menu.Items.Add(updates);
-        menu.Items.Add("배포 프로그램 업데이트 확인", null, async (_, _) => { ShowManager(); _tabs.SelectedIndex = 1; await RefreshAsync(); });
-        if (_managerUpdate is { } update)
-            menu.Items.Add(new ToolStripMenuItem("Program Manager " + update.Release.Version + " 업데이트 및 재시작", null, async (_, _) => await InstallManagerUpdateAsync()) { Enabled = !_busy && !_checkingManager });
-        menu.Items.Add(new ToolStripMenuItem(_checkingManager ? "관리 프로그램 새 버전 확인 중…" : "관리 프로그램 업데이트 확인", null, async (_, _) => await CheckManagerUpdateAsync(true)) { Enabled = !_busy && !_checkingManager });
+        if (UpdateCount > 0)
+        {
+            var updates = new ToolStripMenuItem("업데이트 " + UpdateCount + "개") { Enabled = !_busy && !_checkingManager && !_checkingUpdates };
+            if (_managerUpdate is { } update)
+                updates.DropDownItems.Add("Program Manager " + Program.Version + " → " + update.Release.Version + " · 업데이트 및 재시작", null, async (_, _) => await InstallManagerUpdateAsync());
+            foreach (var appUpdate in _appUpdates)
+                updates.DropDownItems.Add(appUpdate.Program.Name.Replace("&", "&&") + "  " + appUpdate.Program.InstalledVersion + " → " + appUpdate.Release.Version, null, (_, _) => ShowAppUpdate(appUpdate.App.Id));
+            menu.Items.Add(updates);
+        }
+        menu.Items.Add(new ToolStripMenuItem(_checkingUpdates || _checkingManager ? "업데이트 확인 중…" : "업데이트 확인", null, async (_, _) => await CheckUpdatesAsync()) { Enabled = !_busy && !_checkingManager && !_checkingUpdates });
         menu.Items.Add("설정", null, async (_, _) => { ShowManager(); await SettingsAsync(); });
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("종료", null, async (_, _) => await QuitAsync());
@@ -229,6 +231,7 @@ internal sealed class MainForm : Form
     }
 
     private PairingInfo? ActivePairing => _state.Pairing ?? (_state.Settings.HostEnabled && _identity != null ? _identity.CreatePairing("127.0.0.1", _state.Settings.Port) : null);
+    private int UpdateCount => _appUpdates.Count + (_managerUpdate is null ? 0 : 1);
 
     private void Render()
     {
@@ -264,11 +267,11 @@ internal sealed class MainForm : Form
             .Select(p => (Program: p, App: _remote.Apps.FirstOrDefault(a => a.Id == p.CatalogId)))
             .Where(p => p.App != null && Platforms.Latest(p.App, Platforms.Current) is AppRelease release && InstalledPrograms.IsUpdate(p.Program, release))
             .Select(p => (p.Program, App: p.App!, Release: Platforms.Latest(p.App!, Platforms.Current)!)).ToList();
-        var updates = _appUpdates.Count;
+        var updates = UpdateCount;
         if (_tray != null)
         {
             _tray.Icon = updates > 0 ? _appUpdateIcon : Icon;
-            _tray.Text = Program.DisplayName + (updates > 0 ? " · 앱 업데이트 " + updates + "개" : "");
+            _tray.Text = Program.DisplayName + (updates > 0 ? " · 업데이트 " + updates + "개" : "");
         }
         _summary.Text = $"내 프로그램 {_state.Settings.Programs.Count}개   ·   업데이트 {updates}개   ·   {Platforms.Label(Platforms.Current)}   ·   {(_state.Settings.HostEnabled ? "호스트 + 클라이언트" : "클라이언트")}";
         _connection.Text = _state.Settings.HostEnabled && _state.Pairing is null ? "배포 접속 정보와 연결 코드: 설정 → 호스트 · 배포" : _fingerprint.Length == 0 ? "호스트 연결: 설정 → 클라이언트 · 연결" : $"마지막 목록 확인: {_state.Cache.CheckedUtc.LocalDateTime:g} · 설정 → 클라이언트 · 연결에서 호스트를 확인할 수 있습니다.";
@@ -355,9 +358,9 @@ internal sealed class MainForm : Form
         catch (Exception ex) { _state.Settings.Programs = before; ShowError(ex); }
     }
 
-    private async Task RefreshAsync(bool manual = true)
+    private async Task<bool> RefreshAsync(bool manual = true)
     {
-        await RunAsync("배포 목록 확인 중…", async token =>
+        return await RunAsync("배포 목록 확인 중…", async token =>
         {
             _published = await Task.Run(() => _state.Store.Read(), token);
             await RefreshInstalledAsync();
@@ -423,7 +426,7 @@ internal sealed class MainForm : Form
         var next = AppState.Clone(_state.Settings); next.AppUpdateNotificationKey = key; _state.CommitSettings(next);
         if (_appUpdates.Count == 0) return;
         _appBalloon = true;
-        _tray.ShowBalloonTip(10000, "설치된 앱 업데이트 " + _appUpdates.Count + "개", "새 버전이 있는 앱: " + string.Join(", ", _appUpdates.Take(3).Select(u => u.Program.Name)) + "\n트레이의 ‘앱 업데이트’ 메뉴에서 확인하세요.", ToolTipIcon.Info);
+        _tray.ShowBalloonTip(10000, "설치된 앱 업데이트 " + _appUpdates.Count + "개", "새 버전이 있는 앱: " + string.Join(", ", _appUpdates.Take(3).Select(u => u.Program.Name)) + "\n트레이의 ‘업데이트’ 메뉴에서 확인하세요.", ToolTipIcon.Info);
     }
 
     private async Task EnableHostAsync()
@@ -675,17 +678,33 @@ internal sealed class MainForm : Form
         && release.Size == candidate.Size && release.Sha256 == candidate.Sha256 && release.FileName == candidate.FileName
         && release.GitHubAssetId == candidate.GitHubAssetId && release.GitHubTag == candidate.GitHubTag && release.PublishedUtc == candidate.PublishedUtc;
 
-    private async Task CheckManagerUpdateAsync(bool manual)
+    private async Task CheckUpdatesAsync()
     {
-        if (_busy || _checkingManager || IsDisposed) return;
-        _checkingManager = true;
-        var pairing = _state.Settings.PairingProtected;
-        var install = false;
+        if (_busy || _checkingManager || _checkingUpdates || _settingsOpen) return;
+        _checkingUpdates = true;
+        ShowManager();
         try
         {
-            if (manual) _status.Text = "관리 프로그램 새 버전을 확인하고 있습니다…";
+            var hasHost = ActivePairing != null;
+            var appsOk = !hasHost || await RefreshAsync();
+            var managerOk = await CheckManagerUpdateAsync(true);
+            if (!appsOk || !managerOk) _status.Text = "일부 업데이트를 확인하지 못했습니다. 연결을 확인한 뒤 다시 시도하세요.";
+            else _status.Text = (hasHost ? "업데이트 확인 완료" : "Program Manager 확인 완료 · 설치된 앱 확인은 호스트 연결이 필요합니다.")
+                + (UpdateCount > 0 ? $" · 업데이트 {UpdateCount}개: 트레이의 ‘업데이트’ 메뉴에서 선택하세요." : " · 새 업데이트 없음");
+        }
+        finally { _checkingUpdates = false; }
+    }
+
+    private async Task<bool> CheckManagerUpdateAsync(bool manual)
+    {
+        if (_busy || _checkingManager || IsDisposed) return false;
+        _checkingManager = true;
+        var pairing = _state.Settings.PairingProtected;
+        try
+        {
+            if (manual) _status.Text = "Program Manager 새 버전을 확인하고 있습니다…";
             var update = await _managerUpdater.CheckAsync(_state.Pairing, Program.Version, manual, _managerLifetime.Token);
-            if (IsDisposed || _quitting || pairing != _state.Settings.PairingProtected || (!manual && !_state.Settings.ManagerAutoCheck)) return;
+            if (IsDisposed || _quitting || pairing != _state.Settings.PairingProtected || (!manual && !_state.Settings.ManagerAutoCheck)) return false;
             _managerUpdate = update;
             if (update != null)
             {
@@ -696,20 +715,17 @@ internal sealed class MainForm : Form
                     _state.CommitSettings(next);
                     _appBalloon = false;
                     _tray.ShowBalloonTip(10000, Program.DisplayName,
-                        "새 버전 " + update.Release.Version + "이 있습니다. 알림 또는 트레이의 업데이트 및 재시작 메뉴를 선택하세요.", ToolTipIcon.Info);
+                        "새 버전 " + update.Release.Version + "이 있습니다. 트레이의 ‘업데이트’ 메뉴에서 Program Manager를 선택하세요.", ToolTipIcon.Info);
                 }
-                if (!_busy) _status.Text = "Program Manager " + update.Release.Version + " 업데이트 가능 · 트레이 메뉴에서 업데이트 및 재시작";
-                if (manual && !_busy)
-                {
-                    install = true;
-                }
+                if (!_busy) _status.Text = "Program Manager " + update.Release.Version + " 업데이트 가능 · 트레이의 ‘업데이트’ 메뉴에서 선택";
             }
-            else if (manual && !_busy) MessageBox.Show(this, "현재 버전: " + Program.Version + "\n이 Windows에 설치할 더 새로운 버전이 없습니다.", Program.DisplayName, MessageBoxButtons.OK, MessageBoxIcon.Information);
+            Render();
+            return true;
         }
         catch (OperationCanceledException) { }
         catch (Exception ex) { if (manual && !IsDisposed) { _status.Text = "관리 프로그램 업데이트 확인 실패"; ShowError(ex); } }
         finally { _checkingManager = false; }
-        if (install) await InstallManagerUpdateAsync();
+        return false;
     }
 
     private async Task InstallManagerUpdateAsync()
@@ -833,9 +849,9 @@ internal sealed class MainForm : Form
         _hostStatus.Text = $"다른 PC에 배포할 앱을 선택하고 새 버전을 동기화합니다.\n호스트 실행 중 · {_state.Settings.AdvertisedHost}:{_state.Settings.Port} · 주소·계정·연결 코드는 ‘호스트 설정’에서 관리합니다.{githubStatus}";
     }
 
-    private async Task RunAsync(string message, Func<CancellationToken, Task> work, bool showErrors = true)
+    private async Task<bool> RunAsync(string message, Func<CancellationToken, Task> work, bool showErrors = true)
     {
-        if (_busy) return;
+        if (_busy) return false;
         _busy = true;
         _tabs.Enabled = false;
         _search.Enabled = false;
@@ -844,7 +860,7 @@ internal sealed class MainForm : Form
         _progress.Style = ProgressBarStyle.Marquee;
         _progress.Visible = _cancel.Visible = true;
         _status.Text = message;
-        try { await work(_operation.Token); if (_status.Text == message) _status.Text = "준비 완료"; }
+        try { await work(_operation.Token); if (_status.Text == message) _status.Text = "준비 완료"; return true; }
         catch (OperationCanceledException) { _status.Text = "작업이 취소되었습니다."; }
         catch (Exception) when (_operation.IsCancellationRequested) { _status.Text = "작업이 취소되었습니다."; }
         catch (Exception ex) { _status.Text = "작업 실패 · 기존 프로그램은 계속 실행할 수 있습니다."; if (showErrors) ShowError(ex); }
@@ -855,6 +871,7 @@ internal sealed class MainForm : Form
             _tabs.Enabled = _search.Enabled = true;
             _progress.Visible = _cancel.Visible = false;
         }
+        return false;
     }
 
     private async Task QuitAsync()

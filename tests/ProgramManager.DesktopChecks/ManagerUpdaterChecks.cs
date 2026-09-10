@@ -40,16 +40,58 @@ internal static class ManagerUpdaterChecks
         using (var menu = new ContextMenuStrip())
         {
             form.PopulateTrayMenu(menu);
-            Assert(menu.Items.Cast<ToolStripItem>().Any(i => i.Text == "관리 프로그램 업데이트 확인" && i.Enabled), "manual check is always available");
+            Assert(menu.Items.Cast<ToolStripItem>().Count(i => i.Text == "업데이트 확인" && i.Enabled) == 1, "one manual check covers both update sources");
+            Assert(!menu.Items.Cast<ToolStripItem>().Any(i => i.Text?.Contains("0개") == true), "no empty update menu");
             typeof(MainForm).GetField("_managerUpdate", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(form, selected);
             form.PopulateTrayMenu(menu);
-            Assert(menu.Items.Cast<ToolStripItem>().Any(i => i.Text?.Contains("0.10.0 업데이트 및 재시작") == true && i.Enabled), "available version has actionable tray menu");
+            var updates = menu.Items.OfType<ToolStripMenuItem>().Single(i => i.Text == "업데이트 1개");
+            Assert(updates.DropDownItems.Cast<ToolStripItem>().Any(i => i.Text?.Contains("Program Manager " + Program.Version + " → 0.10.0") == true), "self update is named inside the shared update menu");
             typeof(MainForm).GetField("_busy", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(form, true);
             form.PopulateTrayMenu(menu);
-            Assert(menu.Items.Cast<ToolStripItem>().Where(i => i.Text?.Contains("업데이트 및 재시작") == true || i.Text == "관리 프로그램 업데이트 확인").All(i => !i.Enabled), "no concurrent update install");
+            Assert(menu.Items.Cast<ToolStripItem>().Where(i => i.Text?.StartsWith("업데이트", StringComparison.Ordinal) == true).All(i => !i.Enabled), "no concurrent update install or check");
         }
+        CheckCombined(root);
         Task.Run(() => DownloadCheck(root)).GetAwaiter().GetResult();
         Console.WriteLine("PASS: manager update source/platform/version/digest policy, one-time notification, persisted options, tray actions and on-demand download");
+    }
+
+    private static void CheckCombined(string root)
+    {
+        var source = new Source { Version = "0.10.0" };
+        using var updater = new ManagerUpdater(Path.Combine(root, "combined-manager"), new GitHubApi("", source));
+        var store = new CatalogStore(Path.Combine(root, "combined-catalog"));
+        var package = Path.Combine(root, "combined-package.exe"); File.WriteAllBytes(package, [0x4d, 0x5a, 1, 2]);
+        Task.Run(() => store.PublishAsync("example", "Example", "", "1.0", "", package)).GetAwaiter().GetResult();
+        using var identity = HostIdentity.LoadOrCreate(Path.Combine(root, "combined-identity"));
+        var listener = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0); listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port; listener.Stop();
+        using var server = new CatalogServer(store, identity) { ManagerUpdates = updater.Store, RefreshManagerUpdatesAsync = (force, token) => updater.RefreshAsync(force, token) };
+        Task.Run(() => server.StartAsync(port)).GetAwaiter().GetResult();
+        var state = new AppState(Path.Combine(root, "combined-client"));
+        var settings = AppState.Clone(state.Settings);
+        settings.AppAutoCheck = settings.ManagerAutoCheck = false;
+        settings.ManagerNotifiedVersion = "0.10.0"; // Test lookup without displaying a real desktop notification.
+        settings.PairingProtected = Secrets.Protect(identity.CreatePairing("127.0.0.1", port).Export()); state.CommitSettings(settings);
+        using var form = new MainForm(state, false);
+        var flags = BindingFlags.Instance | BindingFlags.NonPublic;
+        void WaitFor(string field)
+        {
+            var deadline = DateTime.UtcNow.AddSeconds(20);
+            while ((bool)typeof(MainForm).GetField(field, flags)!.GetValue(form)! && DateTime.UtcNow < deadline) { Application.DoEvents(); Thread.Sleep(1); }
+            Assert(!(bool)typeof(MainForm).GetField(field, flags)!.GetValue(form)!, field + " finishes");
+        }
+        form.Show(); Application.DoEvents(); WaitFor("_busy");
+        using var menu = new ContextMenuStrip(); form.PopulateTrayMenu(menu);
+        menu.Items.Cast<ToolStripItem>().Single(i => i.Text == "업데이트 확인").PerformClick();
+        form.PopulateTrayMenu(menu);
+        Assert(menu.Items.Cast<ToolStripItem>().Any(i => i.Text == "업데이트 확인 중…" && !i.Enabled), "combined check prevents duplicate clicks");
+        WaitFor("_checkingUpdates");
+        Assert(state.Cache.Catalog.Apps.Single().Id == "example" && source.Releases > 0 && source.Assets == 0, "one tray action fetches both catalogs without downloading installers");
+        Assert(CatalogRules.Version(((ManagerUpdate)typeof(MainForm).GetField("_managerUpdate", flags)!.GetValue(form)!).Release.Version) == CatalogRules.Version("0.10.0"), "new self version remains selectable without starting installation");
+        var tray = (NotifyIcon)typeof(MainForm).GetField("_tray", flags)!.GetValue(form)!;
+        Assert(tray.Text.Contains("업데이트 1개") && tray.Icon != form.Icon, "self updates share the badge and count");
+        Task.Run(server.StopAsync).GetAwaiter().GetResult();
+        Console.WriteLine("PASS: single tray check fetches app and Manager catalogs through pinned host; no automatic installer download");
     }
 
     private static async Task DownloadCheck(string root)
@@ -80,6 +122,7 @@ internal static class ManagerUpdaterChecks
     {
         public readonly byte[] Body = Encoding.UTF8.GetBytes("installer fixture validated without execution");
         public int Assets, Releases;
+        public string Version = "0.3.0";
         public bool Changed;
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
@@ -92,8 +135,8 @@ internal static class ManagerUpdaterChecks
                 Releases++;
                 using var sha = SHA256.Create();
                 var hash = BitConverter.ToString(sha.ComputeHash(Body)).Replace("-", "");
-                payload = new[] { new { draft = false, prerelease = false, tag_name = "v0.3.0", body = "Update", published_at = "2026-09-10T00:00:00Z",
-                    assets = new[] { new { id = Changed ? 99 : 1, name = "ProgramManager-Setup-0.3.0.exe", size = Body.Length, digest = "sha256:" + hash } } } };
+                payload = new[] { new { draft = false, prerelease = false, tag_name = "v" + Version, body = "Update", published_at = "2026-09-10T00:00:00Z",
+                    assets = new[] { new { id = Changed ? 99 : 1, name = "ProgramManager-Setup-" + Version + ".exe", size = Body.Length, digest = "sha256:" + hash } } } };
             }
             else if (path == "/repos/" + ManagerUpdater.Repository + "/releases/assets/1")
             { Assets++; return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(Body) }); }
