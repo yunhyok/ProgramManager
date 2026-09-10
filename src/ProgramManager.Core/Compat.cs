@@ -6,7 +6,7 @@ using System.Security.Cryptography;
 
 namespace ProgramManager.Core;
 
-internal static class Compat
+public static class Compat
 {
     public static string Hex(byte[] data) => BitConverter.ToString(data).Replace("-", "");
     public static string Hash(byte[] data) { using var sha = SHA256.Create(); return Hex(sha.ComputeHash(data)); }

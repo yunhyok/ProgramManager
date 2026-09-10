@@ -106,11 +106,9 @@ internal sealed class LayoutCheck
         if (form is not ProgramManager.MainForm)
             foreach (var button in Descendants(form).OfType<Button>().Where(button => button.Visible))
             {
-                Control child = button;
                 for (Control? parent = button.Parent; parent != null; parent = parent.Parent)
                 {
-                    if (parent is ScrollableControl scroll && scroll.AutoScroll) scroll.ScrollControlIntoView(child);
-                    child = parent;
+                    if (parent is ScrollableControl scroll && scroll.AutoScroll) scroll.ScrollControlIntoView(button);
                 }
                 Application.DoEvents();
                 var bounds = form.RectangleToClient(button.RectangleToScreen(button.ClientRectangle));

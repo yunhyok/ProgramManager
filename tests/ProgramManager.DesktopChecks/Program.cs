@@ -50,6 +50,7 @@ internal static class DesktopCheckRunner
             CheckRecentPrograms(root);
             ManagerUpdaterChecks.Run(root);
             UpdateInstallerChecks.Run(root);
+            ConnectionSettingsChecks.Run(root);
             Console.WriteLine("PASS: copied Windows shortcut preserves target/arguments/working directory; deletion-safe launcher; stable dedup; settings/program rollback; corrupt/null JSON rejection; platform numeric ordering; recent five history and tray dispatch; repository preflight/progress/patterns/retry/cancellation");
             return 0;
         }
@@ -104,7 +105,7 @@ internal static class DesktopCheckRunner
             bitmap.Save(path, System.Drawing.Imaging.ImageFormat.Png);
             Console.WriteLine(path);
         }
-        foreach (var dialogName in new[] { "register", "github-settings", "repositories", "sync-result", "settings", "pairing", "history", "help" })
+        foreach (var dialogName in new[] { "register", "github-settings", "repositories", "sync-result", "settings", "settings-host", "settings-client", "history", "help" })
         {
             var repositoryPrepared = false;
             var pendingCaptured = false;
@@ -147,6 +148,20 @@ internal static class DesktopCheckRunner
                     Assert(browser.Url?.IsFile == true, "offline viewer blocks external navigation");
                 }
                 Application.Idle -= capture;
+                if (dialogName.StartsWith("settings"))
+                {
+                    var settingsTabs = dialog.Controls.Find("SettingsTabs", true).OfType<TabControl>().Single();
+                    Assert(settingsTabs.TabPages.Cast<TabPage>().Select(page => page.Text).SequenceEqual(new[] { "일반", "호스트 · 배포", "클라이언트 · 연결" }), "options are separated into three role tabs");
+                    var outgoing = dialog.Controls.Find("GeneratedConnectionCode", true).OfType<TextBox>().Single();
+                    var incoming = dialog.Controls.Find("ReceivedConnectionCode", true).OfType<TextBox>().Single();
+                    Assert(outgoing.ReadOnly && !incoming.ReadOnly, "generated host code is read-only; received client code accepts input");
+                    var index = settingsTabs.SelectedIndex;
+                    settingsTabs.SelectedIndex = 1;
+                    Assert(outgoing.Enabled == (dialogName == "settings-host"), "host options require the host role");
+                    settingsTabs.SelectedIndex = 2;
+                    Assert(incoming.Enabled, "client connection is available for either role");
+                    settingsTabs.SelectedIndex = index;
+                }
                 if (!repositoryPrepared) layout?.Prepare(dialog);
                 layout?.Inspect(dialog, dialogName);
                 using var bitmap = new Bitmap(dialog.Width, dialog.Height);
@@ -164,7 +179,14 @@ internal static class DesktopCheckRunner
                 else if (dialogName == "repositories") GitHubDialogs.Sources(form, "sample-account", [new GitHubRepository { FullName = "sample-account/IntraDrop", Description = "내부망 파일 전송", Private = false }, new GitHubRepository { FullName = "sample-account/spd-decap-pi-evaluator", Description = "SPD 파일 분석 · 설치 파일 후보 여러 개", Private = true }, new GitHubRepository { FullName = "sample-account/private-tool", Description = "접근 권한 확인이 필요한 저장소", Private = true }, new GitHubRepository { FullName = "sample-account/no-release", Description = "아직 정식 배포본이 없는 저장소" }], [new GitHubSelection { Repository = "sample-account/IntraDrop" }], CheckRepositoryFixtureAsync);
                 else if (dialogName == "sync-result") GitHubDialogs.ShowSyncResult(form, "저장소 2개 중 1개 동기화 완료 · 1개는 이전 배포본 유지", new GitHubSyncResult { Checks = [RepositoryFixture(new GitHubRepository { FullName = "sample-account/IntraDrop" }, new GitHubSelection { Repository = "sample-account/IntraDrop" }), RepositoryFixture(new GitHubRepository { FullName = "sample-account/private-tool" }, new GitHubSelection { Repository = "sample-account/private-tool" })] });
                 else if (dialogName == "settings") Dialogs.Settings(form, state);
-                else if (dialogName == "pairing") Dialogs.ShowPairing(form, "Test-only connection code. No real host credentials.", "192.0.2.10:45672");
+                else if (dialogName == "settings-host")
+                {
+                    var hostState = new AppState(Path.Combine(root, "host-settings"));
+                    var configuration = Clone(hostState.Settings); configuration.HostEnabled = true; configuration.AdvertisedHost = "192.0.2.10";
+                    hostState.CommitSettings(configuration);
+                    Dialogs.Settings(form, hostState, "host");
+                }
+                else if (dialogName == "settings-client") Dialogs.Settings(form, state, "client");
                 else if (dialogName == "help") typeof(MainForm).GetMethod("ShowHelp", flags)!.Invoke(form, null);
                 else typeof(MainForm).GetMethod("ShowHostHistory", flags)!.Invoke(form, null);
             }

@@ -6,7 +6,7 @@
     <UseWindowsForms>true</UseWindowsForms>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Version>0.3.0</Version>
+    <Version>0.3.1</Version>
     <ApplicationHighDpiMode>SystemAware</ApplicationHighDpiMode>
     <Product>Program Manager</Product>
     <Description>트레이 프로그램 실행 및 내부망 배포 관리</Description>

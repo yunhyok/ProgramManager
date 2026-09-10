@@ -5,6 +5,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Win32;
 using Microsoft.Win32.SafeHandles;
+using ProgramManager.Core;
 
 namespace ProgramManager;
 
@@ -158,7 +159,7 @@ public static class UpdateInstaller
         {
             File.WriteAllText(temp, "[Update]\r\nStatus=pending\r\nVersion=" + NormalizeVersion(version).ToString(3) +
                 "\r\nLogPath=" + Path.Combine(directory, LogFileName) + "\r\nMessage=업데이트 설치가 시작되었습니다.\r\n", new UTF8Encoding(true));
-            if (File.Exists(path)) File.Replace(temp, path, null); else File.Move(temp, path);
+            Compat.Replace(temp, path);
         }
         finally { if (File.Exists(temp)) File.Delete(temp); }
     }
@@ -181,7 +182,7 @@ public static class UpdateInstaller
         if (result.Status != "pending" && result.Status != "succeeded" && result.Status != "failed")
         { result.Status = "failed"; result.Message = "업데이트 완료 여부를 확인할 수 없습니다. 설치 로그를 확인하세요."; }
         var previous = Path.Combine(directory, "last-update-result.ini");
-        if (File.Exists(previous)) File.Replace(path, previous, null); else File.Move(path, previous);
+        Compat.Replace(path, previous);
         return result;
     }
 
