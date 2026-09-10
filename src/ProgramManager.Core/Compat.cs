@@ -33,7 +33,19 @@ internal static class Compat
     }
     public static void Replace(string source, string target)
     {
-        if (File.Exists(target)) File.Replace(source, target, null);
-        else File.Move(source, target);
+        for (var retry = 0; ; retry++)
+        {
+            try
+            {
+                if (File.Exists(target)) File.Replace(source, target, null);
+                else File.Move(source, target);
+                return;
+            }
+            // These Windows failures leave both names intact. Other ReplaceFile errors may not.
+            catch (IOException ex) when (retry < 4 && ((uint)ex.HResult is 0x80070020 or 0x80070021 or 0x80070497))
+            {
+                Thread.Sleep(50 << retry);
+            }
+        }
     }
 }

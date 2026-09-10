@@ -2,7 +2,7 @@ using System.Security.Cryptography;
 
 namespace ProgramManager.Core;
 
-public sealed class CatalogStore
+public sealed partial class CatalogStore
 {
     private readonly string root;
     private string CatalogPath => Path.Combine(root, "catalog.json");

@@ -5,7 +5,41 @@ namespace ProgramManager;
 
 internal static class Dialogs
 {
-    private sealed class Fields : Form
+    public static void ShowHtml(IWin32Window owner, string path, string section = "")
+    {
+        path = Path.GetFullPath(path);
+        if (!File.Exists(path)) throw new FileNotFoundException("설명 파일을 찾을 수 없습니다.", path);
+        using var form = new Form();
+        Ui.BeginForm(form);
+        form.Text = "도움말 / 프로그램 설명 · " + Program.DisplayName;
+        form.ClientSize = new Size(1000, 720);
+        form.MinimumSize = new Size(560, 400);
+        form.StartPosition = FormStartPosition.CenterParent;
+        var browser = new WebBrowser { Dock = DockStyle.Fill, AllowWebBrowserDrop = false, IsWebBrowserContextMenuEnabled = false, ScriptErrorsSuppressed = true };
+        browser.Navigating += (_, e) => e.Cancel = !e.Url.IsFile || !string.Equals(e.Url.LocalPath, path, StringComparison.OrdinalIgnoreCase);
+        browser.NewWindow += (_, e) => e.Cancel = true;
+        void FitDocument()
+        {
+            if (browser.Document?.Body is not { } body) return;
+            using var graphics = form.CreateGraphics();
+            body.Style = "zoom: " + Math.Round(graphics.DpiX / 96 * form.Font.Size / 10 * 100).ToString(System.Globalization.CultureInfo.InvariantCulture) + "%;";
+            if (section.Length > 0) browser.Document.GetElementById(section)?.ScrollIntoView(true);
+            body.ScrollLeft = 0;
+            var html = browser.Document.GetElementsByTagName("html");
+            if (html.Count > 0) html[0].ScrollLeft = 0;
+        }
+        browser.DocumentCompleted += (_, _) => FitDocument();
+        form.FontChanged += (_, _) => FitDocument();
+        form.DpiChanged += (_, _) => FitDocument();
+        var close = Ui.Button("닫기", (_, _) => form.Close());
+        var footer = Ui.Bar(close); footer.Dock = DockStyle.Bottom;
+        form.Controls.Add(browser); form.Controls.Add(footer); form.CancelButton = close;
+        form.ResumeLayout(true);
+        form.Shown += (_, _) => browser.Navigate(new Uri(path).AbsoluteUri + (section.Length == 0 ? "" : "#" + section));
+        form.ShowDialog(owner);
+    }
+
+    internal sealed class Fields : Form
     {
         private readonly TableLayoutPanel _table;
         public Fields(string title, int height = 450)
@@ -110,37 +144,6 @@ internal static class Dialogs
             AppState.ValidateLaunchPath(path.Text.Trim());
             if (version.Text.Trim().Length > 0) Platforms.Numeric(version.Text.Trim());
             result = new LocalProgram { Id = item?.Id ?? Guid.NewGuid().ToString("N"), Name = name.Text.Trim(), Path = path.Text.Trim(), InstalledVersion = version.Text.Trim(), CatalogId = app?.Id ?? item?.CatalogId ?? "", HostFingerprint = app is null ? item?.HostFingerprint ?? "" : fingerprint, InstalledPlatform = release?.Platform ?? item?.InstalledPlatform ?? "" };
-        });
-        return form.ShowDialog(owner) == DialogResult.OK ? result : null;
-    }
-
-    public sealed class Publication
-    {
-        public string Id = "", Name = "", Description = "", Version = "", Notes = "", Path = "", Platform = "";
-    }
-
-    public static Publication? Publish(IWin32Window owner, CatalogApp? app)
-    {
-        using var form = new Fields(app is null ? "새 프로그램 배포" : "버전 / Windows 배포본 추가", 720);
-        var id = form.TextField("프로그램 ID", app?.Id ?? "");
-        id.ReadOnly = app != null;
-        var name = form.TextField("프로그램 이름", app?.Name ?? "");
-        var description = form.TextField("설명", app?.Description ?? "", true);
-        var version = form.TextField("버전", app?.Latest?.Version ?? "0.1.0");
-        var platform = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList };
-        platform.Items.AddRange([Platforms.Label(Platforms.Modern), Platforms.Label(Platforms.Legacy)]);
-        platform.SelectedIndex = 0;
-        form.Row("대상 Windows", platform);
-        var path = form.FileField("설치 파일", "", "Windows 설치 파일|*.exe;*.msi");
-        var notes = form.TextField("변경 내역", "", true);
-        form.Row("안내", new Label { AutoSize = true, MaximumSize = new Size(410, 0), Text = "ID 예: intra-drop. 같은 프로그램은 ID를 유지하세요. 같은 버전도 대상 Windows가 다르면 각각 등록할 수 있습니다. 배포된 파일은 덮어쓰지 않습니다." });
-        Publication? result = null;
-        form.Finish("배포본 등록", () =>
-        {
-            if (!File.Exists(path.Text)) throw new FileNotFoundException("설치 파일을 선택하세요.");
-            Platforms.Numeric(version.Text.Trim());
-            if (string.IsNullOrWhiteSpace(name.Text) || string.IsNullOrWhiteSpace(id.Text)) throw new InvalidDataException("프로그램 ID와 이름을 입력하세요.");
-            result = new Publication { Id = id.Text.Trim(), Name = name.Text.Trim(), Description = description.Text.Trim(), Version = version.Text.Trim(), Notes = notes.Text.Trim(), Path = path.Text, Platform = platform.SelectedIndex == 0 ? Platforms.Modern : Platforms.Legacy };
         });
         return form.ShowDialog(owner) == DialogResult.OK ? result : null;
     }

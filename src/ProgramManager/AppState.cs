@@ -26,6 +26,11 @@ public sealed class UserSettings
     public bool AutoStart { get; set; }
     public string PairingProtected { get; set; } = "";
     public List<LocalProgram> Programs { get; set; } = [];
+    public string GitHubOwner { get; set; } = "";
+    public bool UseGitHubCli { get; set; } = true;
+    public string GitHubTokenProtected { get; set; } = "";
+    public int CacheRetentionDays { get; set; } = 7;
+    public List<GitHubSelection> GitHubRepositories { get; set; } = [];
 }
 
 public sealed class CachedCatalog
@@ -41,7 +46,8 @@ public sealed class AppState
     public UserSettings Settings { get; private set; }
     public CachedCatalog Cache { get; set; }
     public CatalogStore Store { get; }
-    public string Downloads => Path.Combine(Root, "downloads");
+    public string Downloads => Path.Combine(Root, "temp", "installers");
+    public string Documents => Path.Combine(Root, "temp", "docs");
 
     public AppState(string root)
     {
@@ -141,7 +147,7 @@ public sealed class AppState
         Settings = staged;
     }
 
-    private static T Clone<T>(T value) => JsonSerializer.Deserialize<T>(JsonSerializer.SerializeToUtf8Bytes(value, JsonFiles.Options), JsonFiles.Options)!;
+    public static T Clone<T>(T value) => JsonSerializer.Deserialize<T>(JsonSerializer.SerializeToUtf8Bytes(value, JsonFiles.Options), JsonFiles.Options)!;
     private static bool SamePath(string first, string second) => Path.GetFullPath(first).Equals(Path.GetFullPath(second), StringComparison.OrdinalIgnoreCase);
 
     private static void ValidateSettings(UserSettings settings)
@@ -151,6 +157,11 @@ public sealed class AppState
             if (settings is null || settings.Programs is null || settings.Programs.Count > 1000 || settings.Programs.Any(p => p is null)) throw new InvalidDataException("프로그램 목록이 비어 있거나 너무 큽니다.");
             new PairingInfo { Host = settings.AdvertisedHost, Port = settings.Port, Fingerprint = new string('0', 64), Token = new string('0', 64) }.Validate();
             CatalogRules.Text(settings.PairingProtected, 20000);
+            CatalogRules.Text(settings.GitHubOwner, 100);
+            if (settings.GitHubOwner.Length > 0 && !Regex.IsMatch(settings.GitHubOwner, "\\A[a-zA-Z0-9-]{1,39}\\z")) throw new InvalidDataException("GitHub 계정 이름을 확인하세요.");
+            CatalogRules.Text(settings.GitHubTokenProtected, 20000);
+            if (settings.CacheRetentionDays is < 1 or > 30 || settings.GitHubRepositories is null || settings.GitHubRepositories.Count > 200) throw new InvalidDataException("캐시 보관 기간 또는 GitHub 저장소 목록이 올바르지 않습니다.");
+            foreach (var source in settings.GitHubRepositories) (source ?? throw new InvalidDataException("저장소 정보가 비어 있습니다.")).Validate();
             if (settings.PairingProtected.Length > 0) PairingInfo.Parse(Secrets.Unprotect(settings.PairingProtected));
             foreach (var item in settings.Programs) ValidateProgram(item);
             if (settings.Programs.Select(p => p.Id).Distinct(StringComparer.OrdinalIgnoreCase).Count() != settings.Programs.Count) throw new InvalidDataException("프로그램 ID가 중복됩니다.");

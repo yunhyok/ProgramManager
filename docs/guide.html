@@ -2,113 +2,158 @@
 <html lang="ko">
 <head>
   <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Program Manager 0.1.1 사용 안내</title>
+  <title>Program Manager 0.2.0 사용 안내</title>
   <style>
-    body { margin: 0; background: #f4f6f8; color: #243042; font: 16px/1.75 "Segoe UI", "Malgun Gothic", sans-serif; }
-    main { max-width: 860px; margin: 32px auto; padding: 36px; background: #fff; border: 1px solid #dbe2e8; border-radius: 12px; }
-    h1 { margin: 0; color: #163b59; font-size: 30px; line-height: 1.3; }
-    h2 { margin: 36px 0 12px; color: #163b59; font-size: 22px; }
-    p { margin: 12px 0; } li { margin: 8px 0; }
-    .lead { color: #526174; } .note { padding: 14px 18px; background: #edf5fc; border-left: 4px solid #367db2; }
-    nav { margin: 24px 0; padding: 16px; background: #f4f6f8; }
-    nav a { display: inline-block; margin-right: 18px; }
-    a { color: #176199; text-decoration: underline; }
-    a:focus { outline: 3px solid #e0ad20; outline-offset: 3px; }
-    table { width: 100%; border-collapse: collapse; font-size: 15px; }
-    th, td { border: 1px solid #dbe2e8; text-align: left; padding: 10px 12px; vertical-align: top; }
-    th { background: #edf2f7; } code { font: 0.93em Consolas, monospace; overflow-wrap: anywhere; }
-    .table { overflow-x: auto; } footer { border-top: 1px solid #dbe2e8; margin-top: 36px; padding-top: 18px; color: #647186; font-size: 14px; }
-    @media (max-width: 640px) { main { margin: 0; padding: 22px; border: 0; border-radius: 0; } h1 { font-size: 25px; } }
-    @media print { body { background: white; } main { margin: 0; padding: 0; border: 0; } nav { display: none; } }
+    body { margin: 0; background: #f3f6f9; color: #243042; font: 16px/1.75 "Segoe UI", "Malgun Gothic", sans-serif; }
+    main { display: block; box-sizing: border-box; max-width: 940px; margin: 28px auto; padding: 36px; background: #fff; border: 1px solid #dbe2e8; border-radius: 12px; }
+    h1 { margin: 0; color: #163b59; font-size: 30px; line-height: 1.4; }
+    h2 { margin: 38px 0 12px; padding-top: 8px; color: #163b59; font-size: 23px; line-height: 1.5; }
+    h3 { margin: 20px 0 6px; font-size: 18px; } p { margin: 10px 0; } li { margin: 9px 0; }
+    .lead, .muted { color: #526174; } .badge { display: inline-block; margin-bottom: 8px; padding: 2px 10px; border-radius: 4px; background: #e5eef7; color: #234e72; font-size: 14px; }
+    .note { margin: 18px 0; padding: 14px 18px; background: #edf5fc; border-left: 4px solid #367db2; }
+    nav { margin: 24px 0; padding: 16px 18px; background: #f3f6f9; border-radius: 6px; }
+    nav a { display: inline-block; margin: 4px 18px 4px 0; } a { color: #176199; text-decoration: underline; }
+    a:focus { outline: 3px solid #b17800; outline-offset: 3px; }
+    .table { overflow-x: auto; } table { width: 100%; border-collapse: collapse; font-size: 15px; }
+    th, td { border: 1px solid #dbe2e8; text-align: left; padding: 11px 13px; vertical-align: top; } th { background: #edf2f7; }
+    code { font: 0.93em Consolas, monospace; overflow-wrap: break-word; word-wrap: break-word; }
+    .flow { text-align: center; padding: 16px; background: #f3f6f9; border: 1px solid #dbe2e8; }
+    .flow p { margin: 6px 0; } .flow strong { display: inline-block; padding: 8px 20px; background: #fff; border: 1px solid #aebed0; border-radius: 5px; }
+    .steps { padding-left: 28px; } .steps li { padding-left: 4px; margin-bottom: 16px; }
+    footer { border-top: 1px solid #dbe2e8; margin-top: 36px; padding-top: 18px; color: #526174; font-size: 14px; }
+    @media (max-width: 640px) { main { margin: 0; padding: 22px; border: 0; border-radius: 0; } h1 { font-size: 25px; } th, td { padding: 8px; } }
+    @media print { body { background: #fff; } main { margin: 0; padding: 0; border: 0; } nav { display: none; } h2 { page-break-after: avoid; } tr { page-break-inside: avoid; } }
   </style>
 </head>
 <body>
 <main>
-  <h1>Program Manager 0.1.1</h1>
-  <p>0.1.1에서는 높은 화면 배율에서 글자가 잘리던 문제를 수정했습니다. 창 크기에 따라 도구 모음이 줄바꿈되며, 설정·등록 창의 저장과 취소 버튼은 하단에 유지됩니다.</p>
-  <p class="lead">트레이 한 곳에서 프로그램을 실행하고, 다른 컴퓨터에 배포할 버전을 관리합니다.</p>
+  <span class="badge">설치에 포함된 오프라인 도움말</span>
+  <h1>Program Manager 0.2.0 사용 안내</h1>
+  <p class="lead">이 PC의 프로그램은 한 목록에서 실행하고, 다른 PC에는 GitHub의 배포 버전을 전달합니다.</p>
+  <p><strong>이미 등록한 프로그램은 그대로 사용하면 됩니다.</strong> 새 배포는 호스트에서 GitHub 저장소를 선택하는 방식입니다. 클라이언트 PC에는 GitHub 계정이나 인터넷 연결이 필요하지 않습니다.</p>
+  <p>도움말과 오프라인 설명은 Program Manager 안에서 열립니다. 별도의 브라우저가 필요하지 않으며, 문서 안의 목차로 이동할 수 있습니다.</p>
+
   <nav aria-label="도움말 목차">
-    <a href="#launch">목록 정리</a><a href="#host">호스트 준비</a><a href="#client">클라이언트 연결</a><a href="#updates">설치·업데이트</a><a href="#help">문제 해결</a>
+    <a href="#screens">화면별 용도</a><a href="#launch">기존 프로그램 실행</a><a href="#host">호스트 시작 3단계</a><a href="#client">클라이언트 시작 3단계</a><a href="#releases">Windows별 버전</a><a href="#cache">다운로드·정리</a><a href="#help">문제 해결</a>
   </nav>
 
-  <h2 id="install">설치 파일 선택</h2>
+  <h2 id="screens">어느 화면에서 시작하나요?</h2>
   <div class="table"><table>
-    <thead><tr><th scope="col">컴퓨터</th><th scope="col">사용할 설치 파일</th></tr></thead>
+    <thead><tr><th scope="col">하려는 일</th><th scope="col">화면</th><th scope="col">다음 행동</th></tr></thead>
     <tbody>
-      <tr><td>Windows 10/11 64비트</td><td><code>ProgramManager-Setup-0.1.1.exe</code><br>.NET 8 런타임 포함</td></tr>
-      <tr><td>Windows 7 SP1 / 8 계열</td><td><code>ProgramManager-Setup-0.1.1-win7.exe</code><br>.NET Framework 4.8 사전 설치 필요</td></tr>
+      <tr><td>이 PC에 설치된 앱 실행</td><td><strong>내 프로그램</strong></td><td>프로그램 선택 → <strong>실행</strong></td></tr>
+      <tr><td>새 프로그램 설치·기존 앱 업데이트</td><td><strong>배포 카탈로그</strong></td><td>호스트 연결 → 목록 새로고침 → 프로그램 선택</td></tr>
+      <tr><td>다른 PC에 배포할 프로그램 선택</td><td><strong>호스트 관리</strong></td><td>호스트 켜기 → GitHub 연결 → 저장소 선택</td></tr>
     </tbody>
   </table></div>
-  <p>시작 메뉴에서 Program Manager를 실행합니다. 설치 시 바탕화면 바로가기는 기본으로 만들지 않습니다. 자동 실행을 선택하면 Windows 로그인 후 트레이에서 시작합니다.</p>
+  <p><strong>내 프로그램</strong>은 이 컴퓨터의 실행 목록입니다. <strong>배포 카탈로그</strong>는 설치할 수 있는 목록이므로, 항목이 보인다고 이미 설치된 것은 아닙니다. <strong>호스트 관리</strong>는 배포할 목록을 준비하는 곳이며 개발 PC에서 사용합니다.</p>
+  <div class="flow" aria-label="GitHub에서 호스트를 거쳐 내부망 클라이언트로 전달하는 구조">
+    <p><strong>GitHub Releases</strong></p>
+    <p>↓ 호스트가 목록을 확인하고 필요한 파일만 받음</p>
+    <p><strong>호스트 PC · 인터넷 + 내부망</strong></p>
+    <p>↓ 내부망으로 목록 · 설치 파일 · 설명 HTML 전달</p>
+    <p><strong>클라이언트 PC · 인터넷 불필요</strong></p>
+  </div>
 
-  <h2 id="launch">1. 프로그램 목록 정리</h2>
-  <ol>
-    <li>로컬 프로그램 등록 기능에서 이름과 실행 파일(<code>.exe</code>) 또는 바로가기(<code>.lnk</code>)를 선택합니다. 바로가기는 Manager의 <code>shortcuts</code> 폴더로 복사됩니다. 등록 후 실행을 확인했다면 바탕화면 바로가기는 정리해도 됩니다. 실행 파일 자체는 원래 설치 위치를 유지하세요.</li>
-    <li>목록에서 등록한 프로그램을 선택해 실행합니다. 파일은 원래 위치에 그대로 둡니다.</li>
-    <li>창의 닫기 버튼을 누르면 트레이에 남습니다. 오른쪽 아래 트레이 아이콘을 한 번 클릭하면 목록이 다시 열립니다.</li>
+  <h2 id="launch">기존 프로그램을 실행하고 목록 정리하기</h2>
+  <ol class="steps">
+    <li><strong>내 프로그램</strong>에서 기존 항목을 선택하고 <strong>실행</strong>합니다. 업데이트 후에도 등록한 실행 경로는 유지됩니다.</li>
+    <li>추가할 앱이 있으면 <strong>+ 프로그램 등록</strong>에서 이름과 실행 파일(<code>.exe</code>) 또는 바로가기(<code>.lnk</code>)를 선택합니다. 버전을 모르면 비워 두세요.</li>
+    <li>잘못된 경로는 <strong>편집</strong>으로 바꾸고, 목록만 정리하려면 <strong>목록에서 제거</strong>를 사용합니다. 이 작업은 대상 앱을 제거하지 않습니다.</li>
   </ol>
-  <p>아이콘이 보이지 않으면 Windows 트레이의 숨겨진 아이콘 영역을 확인하세요. 완전히 종료하려면 트레이 메뉴의 <strong>종료</strong>를 선택합니다. 목록에서 항목을 제거해도 대상 프로그램 파일은 삭제하지 않습니다.</p>
+  <p>바로가기는 Manager의 데이터 폴더에 복사합니다. 등록한 항목이 실행되는지 확인한 후 바탕화면 바로가기를 정리해도 됩니다. 대상 EXE 파일은 원래 설치 위치에 두세요.</p>
+  <p>창의 <strong>×</strong>를 누르면 트레이에 남습니다. Windows 오른쪽 아래 아이콘을 클릭하면 다시 열립니다. 보이지 않으면 숨겨진 아이콘 영역을 확인하세요. 완전히 종료하려면 트레이 메뉴의 <strong>종료</strong>를 선택합니다.</p>
 
-  <h2 id="host">2. 개발 컴퓨터를 호스트로 설정</h2>
-  <ol>
-    <li>옵션에서 <strong>호스트 + 클라이언트</strong> 역할을 선택합니다. 일반 사용 컴퓨터는 클라이언트로 설정합니다.</li>
-    <li>다른 컴퓨터에서 접근 가능한 호스트 이름 또는 IP 주소와 포트를 확인합니다. 기본 TCP 포트는 <code>45672</code>입니다.</li>
-    <li>배포할 프로그램의 EXE/MSI 설치 파일과 아래 정보를 등록합니다.</li>
-    <li>호스트의 연결 코드를 내보내 사용할 클라이언트에 전달합니다.</li>
+  <h2 id="host">호스트 시작 · 3단계</h2>
+  <p class="muted">인터넷이 연결된 개발 PC에서 진행합니다. 같은 Program Manager 앱을 사용합니다.</p>
+  <ol class="steps">
+    <li><strong>호스트 켜기</strong><br><strong>호스트 관리 → 호스트 켜기</strong>를 누릅니다. <strong>설정</strong>에서 역할과 다른 PC가 접근할 <strong>이 PC의 배포 주소</strong>·포트를 확인하거나 변경할 수 있습니다. 기본 TCP 포트는 <code>45672</code>입니다.</li>
+    <li><strong>GitHub 연결 후 저장소 동기화</strong><br><strong>GitHub 설정</strong>에서 이 PC의 GitHub CLI 로그인 또는 직접 입력한 토큰을 사용합니다. <strong>저장소 선택</strong>에서 배포할 저장소를 고르고 <strong>선택한 저장소 동기화</strong>를 누르면 메타데이터를 바로 가져옵니다. 이후 새 버전은 <strong>GitHub 동기화</strong>로 확인합니다.</li>
+    <li><strong>클라이언트에 연결 코드 전달</strong><br><strong>연결 코드</strong>를 사용할 PC에 전달합니다. 이제 클라이언트가 요청한 설치 파일과 설명을 호스트가 받아 전달합니다. 호스트 PC에서도 배포 카탈로그를 이용할 수 있습니다.</li>
   </ol>
+  <p class="note"><strong>완료 확인:</strong> 호스트 목록에 선택한 저장소와 배포 가능한 버전이 표시되고, 클라이언트가 목록을 새로 고쳤을 때 같은 프로그램이 보이면 준비되었습니다. 이 단계에서 모든 설치 파일을 다운로드하지 않습니다.</p>
+  <p>비공개 저장소는 해당 저장소를 읽을 수 있는 계정·토큰으로 연결해야 합니다. GitHub 인증 정보는 호스트에서만 사용합니다. 클라이언트에 토큰을 복사할 필요가 없습니다.</p>
+  <p><strong>로그인 방식 선택:</strong> 이미 GitHub CLI로 로그인한 PC는 <strong>기존 GitHub CLI 로그인 사용</strong>을 선택합니다. 토큰은 선택한 저장소의 Contents 읽기 권한이 필요합니다. <strong>공개 저장소만 (로그인 없음)</strong>을 선택할 때는 GitHub 계정 또는 조직 이름을 입력하세요.</p>
+  <p>호스트가 파일을 제공하려면 사용자가 로그인해 있고 Program Manager가 실행 중이어야 합니다. 트레이에 두어도 됩니다. 종료·로그아웃·절전 중에는 새 요청에 응답하지 못합니다.</p>
+
+  <h2 id="client">클라이언트 시작 · 3단계</h2>
+  <p class="muted">프로그램을 사용할 PC에서 진행합니다. 호스트와 내부망으로 연결되어야 하며, GitHub 배포에는 클라이언트도 Program Manager 0.2.0 이상이 필요합니다.</p>
+  <ol class="steps">
+    <li><strong>호스트 연결</strong><br><strong>설정</strong>에서 클라이언트 역할을 선택하고 호스트에서 받은 연결 코드를 등록합니다. <strong>배포 카탈로그 → 목록 새로고침</strong>을 누릅니다.</li>
+    <li><strong>프로그램과 설명 확인</strong><br>프로그램을 선택하고 <strong>오프라인 설명</strong>을 엽니다. 호스트가 README와 릴리스 이력을 HTML로 전달하므로 본문은 인터넷 없이 읽을 수 있습니다. 설치는 이 PC의 Windows에 맞는 파일을 사용합니다.</li>
+    <li><strong>설치 후 실행 경로 확인</strong><br><strong>설치 / 업데이트</strong>를 누르고 설치를 확인합니다. 다운로드와 크기·SHA-256 검증을 통과하면 설치 프로그램이 실행됩니다. 안내에 따라 설치를 마친 후 실제 EXE 또는 바로가기를 확인하면 <strong>내 프로그램</strong>에서 실행할 수 있습니다.</li>
+  </ol>
+  <p class="note"><strong>완료 확인:</strong> 설치가 끝난 앱이 <strong>내 프로그램</strong>에 표시되고 <strong>실행</strong>으로 열리면 완료입니다. 카탈로그에만 표시되는 상태는 설치 완료가 아닙니다.</p>
+  <p>이미 설치된 앱은 <strong>기존 설치 연결</strong>로 실행 경로와 현재 버전을 연결할 수 있습니다. 버전을 모르면 비워 두세요. 새 배포 목록에 있다는 이유만으로 기존 앱을 재설치하지 않습니다.</p>
+  <p>설치 프로그램이 관리자 권한을 요청할 수 있습니다. 설치 취소·실패는 성공으로 기록하지 않습니다. 업데이트 후 경로가 같으면 기존 경로를 유지하고, 달라졌다면 새 경로를 확인합니다.</p>
+
+  <h2 id="releases">버전과 Windows 7용 파일은 어떻게 구분하나요?</h2>
+  <p>버전의 기준은 <code>v1.2.3</code>, <code>1.2.3</code> 같은 숫자 태그의 GitHub <strong>Releases</strong>입니다. 브랜치의 최신 소스나 커밋을 설치하는 기능은 아닙니다. Draft와 Prerelease를 제외한 정식 Release의 EXE/MSI 설치 파일을 사용합니다. 조회한 최근 100개 Release 중 정식 버전을 최대 30개 가져옵니다.</p>
   <div class="table"><table>
-    <thead><tr><th scope="col">항목</th><th scope="col">입력 방법</th></tr></thead>
+    <thead><tr><th scope="col">예시 파일</th><th scope="col">대상</th></tr></thead>
     <tbody>
-      <tr><td>프로그램 ID</td><td>업데이트 동안 유지할 ID. 영문 소문자, 숫자, 하이픈으로 1~64자. 예: <code>my-calculator</code></td></tr>
-      <tr><td>이름·설명</td><td>목록에 표시할 이름과 프로그램 용도</td></tr>
-      <tr><td>버전</td><td><code>1.2</code>, <code>1.2.3</code>, <code>1.2.3.4</code>와 같은 숫자 버전</td></tr>
-      <tr><td>변경 내용</td><td>이번 버전에서 바뀐 기능과 사용자가 알아야 할 사항</td></tr>
-      <tr><td>대상 플랫폼</td><td><code>win10-x64</code> 또는 <code>win7</code>. 같은 프로그램 ID와 버전으로 플랫폼별 설치 파일을 각각 등록할 수 있습니다.</td></tr>
-      <tr><td>설치 파일</td><td>실제 배포할 <code>.exe</code> 또는 <code>.msi</code> 파일</td></tr>
+      <tr><td><code>MyTool-Setup-1.5.0.exe</code></td><td>Windows 10/11 64비트용</td></tr>
+      <tr><td><code>MyTool-Setup-1.5.0-win7.exe</code></td><td>Windows 7 계열용</td></tr>
     </tbody>
   </table></div>
-  <p>호스트는 게시 시 설치 파일을 저장소에 복사하고 크기·SHA-256 정보를 기록합니다. 새 버전은 같은 프로그램 ID로 게시하세요. 설치 프로그램 자체도 기존 설치를 업데이트하도록 구성되어 있어야 합니다.</p>
-  <p class="note">호스트가 파일을 제공하려면 해당 컴퓨터의 사용자가 로그인해 있고 Program Manager가 실행 중이어야 합니다. 창을 닫아 트레이에 두는 것은 괜찮지만 종료·로그아웃·절전 중에는 새 다운로드를 제공하지 못합니다.</p>
+  <p>같은 프로그램이라도 Windows별 설치 파일과 제공되는 최신 버전이 다를 수 있습니다. Windows 7용은 Windows 7용 릴리스에서 선택하며, 맞는 파일이 없으면 다른 OS용으로 대체하지 않습니다.</p>
+  <p>파일 후보가 여러 개이면 호스트의 <strong>저장소 선택</strong>에서 Windows별 파일 이름 패턴을 지정해 선택을 명확하게 합니다. 이름을 바꾸는 것만으로 OS 호환성이 바뀌지는 않습니다. ZIP 포터블 앱, 소스 ZIP/TAR와 Actions 아티팩트는 이번 버전의 설치 대상이 아닙니다.</p>
+  <p>패턴의 <code>*</code>는 여러 글자, <code>?</code>는 한 글자를 뜻합니다. 예를 들어 파일명에 Windows 구분이 있다면 <code>*win10*.exe</code>와 <code>*win7*.exe</code>를 각각 사용합니다. <code>*.exe</code>처럼 넓은 패턴은 파일을 하나로 구분하지 못할 수 있습니다. 자동 선택이 맞으면 비워 두세요.</p>
 
-  <h2 id="client">3. 다른 컴퓨터에서 연결</h2>
-  <ol>
-    <li>클라이언트의 옵션을 열고 호스트에서 받은 연결 코드를 붙여 넣습니다.</li>
-    <li>호스트 목록을 새로 고쳐 연결을 확인합니다.</li>
-    <li>프로그램 설명, 버전과 변경 이력을 확인합니다. 이 컴퓨터의 OS에 맞는 설치 파일이 사용됩니다.</li>
-  </ol>
-  <p>연결 코드는 호스트 주소·포트·인증서 지문·공유 비밀을 함께 담고 있습니다. 신뢰하는 방법으로 전달하고 공개 문서나 스크린샷에 노출하지 마세요. TLS 1.2 연결에서 클라이언트는 등록한 인증서 지문으로 호스트를 확인하고, 호스트는 공유 비밀로 클라이언트의 접근을 확인합니다.</p>
-  <p>호스트 이름 또는 IP 주소를 바꾸면 새 연결 코드를 받아 등록하세요. 인증서가 달라졌다는 오류가 나타나면 호스트 설정을 확인한 뒤 올바른 코드를 다시 받아야 합니다.</p>
-
-  <h2 id="updates">4. 설치와 업데이트</h2>
-  <ol>
-    <li>호스트 목록을 새로 고치고 프로그램의 현재 버전과 변경 내용을 확인합니다.</li>
-    <li>원하는 프로그램의 설치 또는 업데이트를 직접 선택합니다.</li>
-    <li>다운로드가 끝나면 크기와 SHA-256 검증을 통과한 설치 파일을 실행합니다. 대상 설치 프로그램의 화면을 따라 진행합니다.</li>
-    <li>설치가 끝난 뒤 로컬 실행 파일 또는 바로가기를 확인합니다. 설치 종료 코드와 실행 경로 확인을 마쳐야 Manager가 설치 버전을 기록합니다.</li>
-  </ol>
-  <p>설치 프로그램이 관리자 권한을 요청할 수 있습니다. 설치 취소나 실패를 성공으로 기록하지 않습니다. 이미 설치한 프로그램이라도 설치 위치가 달라졌다면 새 실행 경로를 지정하세요.</p>
-  <p>이미 설치된 프로그램은 기존 설치 연결 기능에서 실행 경로와 확인한 버전을 등록할 수 있습니다. 버전을 모르면 비워 두세요. 호스트의 최신 버전이 이미 설치되어 있다고 자동으로 가정하지 않습니다.</p>
-  <p>다운로드 도중에는 <code>.part</code> 임시 파일을 사용합니다. 검증되지 않은 파일은 설치에 사용하지 않습니다. 호스트는 클라이언트에 원격 무인 설치를 실행하지 않습니다.</p>
-
-  <h2 id="help">문제 해결</h2>
+  <h2 id="cache">설치 파일과 설명은 언제 받고 언제 지우나요?</h2>
   <div class="table"><table>
-    <thead><tr><th scope="col">상황</th><th scope="col">확인할 사항</th></tr></thead>
+    <thead><tr><th scope="col">사용자의 행동</th><th scope="col">호스트의 동작</th></tr></thead>
     <tbody>
-      <tr><td>호스트에 연결되지 않음</td><td>호스트의 로그인·프로그램 실행·절전 상태, 주소와 포트를 확인하세요. 같은 내부망에서 접근 가능해야 합니다. 필요하면 사용자가 Windows 방화벽의 개인 네트워크에서 해당 TCP 포트를 허용하세요.</td></tr>
-      <tr><td>이 컴퓨터용 설치 파일이 없음</td><td>호스트에 해당 OS용 릴리스가 게시되어 있는지 확인하세요. 다른 OS용 파일을 대신 설치하지 않습니다.</td></tr>
-      <tr><td>다운로드 검증 실패</td><td>호스트 목록을 새로 고쳐 다시 받으세요. 계속 실패하면 호스트의 원본 설치 파일과 게시 내용을 확인하세요.</td></tr>
-      <tr><td>설치 후 실행되지 않음</td><td>실제 설치된 EXE 또는 바로가기의 위치를 다시 확인하세요. 대상 프로그램의 자체 실행 오류도 확인해야 합니다.</td></tr>
-      <tr><td>Windows 7 설치에서 .NET 안내가 나옴</td><td>Microsoft의 .NET Framework 4.8을 먼저 설치한 뒤 Manager 설치를 다시 실행하세요. 설치 프로그램은 런타임을 자동 다운로드하지 않습니다.</td></tr>
-      <tr><td>설정 또는 인증 파일 오류</td><td>기존 파일을 보존한 채 오류를 확인하세요. 보호된 인증 정보는 다른 Windows 사용자나 PC로 복사해 사용할 수 없습니다.</td></tr>
+      <tr><td>저장소 선택·GitHub 동기화</td><td>프로그램과 릴리스 메타데이터를 받습니다. 모든 설치 파일을 미리 받지는 않습니다.</td></tr>
+      <tr><td>설치 / 업데이트</td><td>필요한 파일이 캐시에 없으면 GitHub에서 받고 검증한 뒤 클라이언트에 전달합니다. 유효한 캐시는 재사용합니다.</td></tr>
+      <tr><td>설명 / 이력</td><td>이미 동기화한 프로그램 설명과 릴리스 정보를 표시합니다. README를 새로 받지 않습니다.</td></tr>
+      <tr><td>오프라인 설명</td><td>README와 릴리스 이력을 HTML로 제공합니다. 저장된 설명 캐시가 있으면 재사용합니다.</td></tr>
+      <tr><td>임시 파일 정리</td><td>사용 중인 파일을 제외하고 앱의 임시 파일을 정리합니다. 설치된 앱과 목록·설정은 유지합니다.</td></tr>
+    </tbody>
+  </table></div>
+  <p>자동 정리 기본값은 <strong>마지막 사용 후 7일</strong>이며, <strong>GitHub 설정</strong>에서 1~30일로 정합니다. 앱 시작 시와 실행 중 매시간 확인합니다. 앱이 종료되어 있으면 정리도 실행되지 않습니다. 삭제된 캐시는 다음 요청 때 다시 받습니다. Windows의 전체 Temp 폴더를 비우지 않습니다.</p>
+  <p>설명 캐시는 날짜가 바뀌어도 재사용합니다. 동기화한 프로그램·릴리스 정보가 바뀌거나 캐시가 정리되면 다음 요청 때 새로 받습니다. README만 바뀐 경우에는 <strong>임시 파일 정리</strong> 후 <strong>오프라인 설명</strong>을 다시 엽니다.</p>
+  <p><strong>호스트 인터넷이 끊긴 경우:</strong> 이미 받은 유효한 파일은 제공할 수 있지만, 아직 받지 않았거나 정리된 파일은 새로 다운로드할 수 없습니다. 목록이 보인다고 설치 파일까지 저장되어 있는 것은 아닙니다.</p>
+  <p><strong>오프라인 설명의 범위:</strong> README와 릴리스 본문을 HTML로 제공합니다. 제목·본문·코드 블록을 표시하며, 복잡한 Markdown 서식과 링크는 텍스트로 남습니다. 외부 설명 사이트·첨부파일·이미지를 모두 내려받지는 않습니다. 원문 URL로 접근하려면 인터넷 연결이 필요합니다.</p>
+
+  <h2 id="help">화면 상태별 다음 행동</h2>
+  <div class="table"><table>
+    <thead><tr><th scope="col">보이는 상태 또는 문제</th><th scope="col">이렇게 진행하세요</th></tr></thead>
+    <tbody>
+      <tr><td>내 프로그램이 비어 있음</td><td><strong>+ 프로그램 등록</strong>으로 이 PC의 EXE/LNK를 추가합니다. 배포 카탈로그에서 설치한 후 실행 경로를 연결해도 됩니다.</td></tr>
+      <tr><td>호스트 미연결</td><td><strong>설정</strong>에서 연결 코드를 등록합니다. 이 상태에서도 내 프로그램의 기존 앱은 실행할 수 있습니다.</td></tr>
+      <tr><td>호스트 관리가 비활성 상태</td><td>배포할 PC라면 <strong>호스트 켜기</strong>를 누릅니다. 역할·주소는 <strong>설정</strong>에서도 바꿀 수 있습니다. 설치만 할 PC에서는 배포 카탈로그를 사용합니다.</td></tr>
+      <tr><td>저장소 목록이 비어 있음</td><td>호스트의 GitHub 계정·소유자와 저장소 접근 권한을 확인하고 목록을 다시 불러옵니다.</td></tr>
+      <tr><td>저장소는 있지만 설치할 버전이 없음</td><td>GitHub의 정식 Release에 EXE/MSI가 첨부되어 있는지 확인합니다. Draft·Prerelease·소스 ZIP만으로는 설치할 수 없습니다.</td></tr>
+      <tr><td>이 Windows용 설치 파일이 없음</td><td>해당 OS용 배포 파일과 호스트의 파일 이름 패턴을 확인합니다. Windows 7용이 없으면 현대 Windows용으로 대신 설치하지 않습니다.</td></tr>
+      <tr><td>설치 버튼이 비활성 상태</td><td>프로그램을 먼저 선택하고, 이 PC용 배포본이 있는지 확인합니다. 검색 때문에 항목이 숨겨졌다면 검색어를 지웁니다.</td></tr>
+      <tr><td>GitHub 권한 또는 요청 한도 오류</td><td>호스트의 GitHub 인증과 저장소 읽기 권한을 확인합니다. 요청 한도 오류라면 안내된 시간 후 다시 동기화합니다.</td></tr>
+      <tr><td>목록은 보이지만 다운로드 실패</td><td>호스트가 인터넷에 연결되어 있는지 확인합니다. 설치 파일은 요청할 때 받으므로 목록만 저장되어 있을 수 있습니다.</td></tr>
+      <tr><td>호스트 연결 실패</td><td>호스트의 앱 실행·절전 상태, 주소·포트, 같은 내부망인지 확인합니다. 필요하면 Windows 방화벽의 개인 네트워크에서 호스트 TCP 포트를 허용합니다.</td></tr>
+      <tr><td>인증서가 달라졌다는 오류</td><td>호스트 설정을 확인하고 올바른 연결 코드를 다시 등록합니다. 호스트 주소가 바뀌어도 새 코드를 받아야 합니다.</td></tr>
+      <tr><td>파일 검증 실패</td><td>목록을 새로 고친 뒤 다시 받습니다. 계속 실패하면 호스트에서 GitHub Release의 원본 파일을 확인합니다. 검증 실패 파일은 설치하지 않습니다.</td></tr>
+      <tr><td>설치 후 실행되지 않음</td><td>실제 설치된 EXE/LNK 경로를 확인하고 <strong>편집</strong> 또는 <strong>기존 설치 연결</strong>로 수정합니다. 대상 프로그램의 실행 오류도 확인하세요.</td></tr>
     </tbody>
   </table></div>
 
-  <h2 id="data">데이터 위치와 동작 범위</h2>
-  <p>기본 데이터 폴더는 <code>%LOCALAPPDATA%\ProgramManager</code>입니다. <code>settings.json</code>은 설정, <code>repository</code>는 배포 저장소, <code>identity</code>는 보호된 호스트 인증 정보, <code>downloads</code>는 다운로드, <code>cache.json</code>은 마지막 호스트 목록입니다. 프로그램 제거 시 이 사용자 데이터는 보존합니다.</p>
-  <p><code>--tray</code>는 트레이 시작, <code>--data-dir &quot;폴더 경로&quot;</code>는 별도 데이터 폴더 실행 옵션입니다. 일반 사용에서는 기본 경로를 사용하면 됩니다.</p>
-  <p>0.1.1은 내부망에서 수동 연결과 사용자가 선택하는 설치를 제공합니다. 인터넷 중계, 공유기 포트 개방, 자동 롤백, 호스트 자동 검색, Windows 서비스는 포함하지 않습니다. 실제 Windows 7 PC와 두 번째 물리 PC에서의 설치·통신은 별도 확인이 필요합니다.</p>
-  <footer>Program Manager 0.1.1 · 설치에 포함된 오프라인 도움말 · 외부 연결 없이 읽을 수 있습니다.</footer>
+  <h2 id="install">Manager 설치 파일 선택</h2>
+  <div class="table"><table>
+    <thead><tr><th scope="col">컴퓨터</th><th scope="col">설치 파일</th></tr></thead>
+    <tbody>
+      <tr><td>Windows 10/11 64비트</td><td><code>ProgramManager-Setup-0.2.0.exe</code><br>.NET 8 포함</td></tr>
+      <tr><td>Windows 7 SP1 / 8 계열</td><td><code>ProgramManager-Setup-0.2.0-win7.exe</code><br>.NET Framework 4.8 사전 설치 필요</td></tr>
+    </tbody>
+  </table></div>
+  <p>기본 설치 위치는 <code>%LOCALAPPDATA%\Programs\Program Manager</code>입니다. 시작 메뉴에서 실행하세요. Windows 7 설치에서 런타임 안내가 나오면 .NET Framework 4.8을 먼저 설치합니다. Manager 설치 프로그램이 런타임을 자동 다운로드하지는 않습니다.</p>
+
+  <h2 id="data">설정과 연결 정보</h2>
+  <p>기본 데이터 폴더는 <code>%LOCALAPPDATA%\ProgramManager</code>입니다. 호스트 캐시는 <code>repository\temp</code>, 클라이언트 임시 파일은 <code>temp</code>에 둡니다. 프로그램을 제거해도 사용자 데이터는 보존합니다.</p>
+  <p>직접 입력한 GitHub 토큰과 연결 정보는 Windows 사용자 계정으로 보호하므로 다른 PC·사용자에게 단순 복사해 이전하지 않습니다. 연결 코드에는 호스트 주소·포트·인증서 지문·공유 비밀이 포함됩니다. 사용할 PC에만 전달하고 공개 문서나 스크린샷에 넣지 마세요.</p>
+  <p>클라이언트는 TLS 1.2에서 등록된 인증서 지문으로 호스트를 확인합니다. <code>--tray</code>는 트레이 시작, <code>--data-dir &quot;폴더 경로&quot;</code>는 별도 데이터 폴더 실행 옵션입니다. 일반 사용에서는 기본 경로를 사용하면 됩니다.</p>
+  <p>원격 무인 설치, 자동 롤백, 호스트 자동 검색, Windows 서비스와 인터넷 중계는 제공하지 않습니다. 실제 Windows 7 PC와 두 번째 물리 PC에서의 설치·통신 검증은 별도입니다.</p>
+  <footer>Program Manager 0.2.0 · 이 도움말 자체는 인터넷 연결 없이 읽을 수 있습니다. <a href="#screens">화면별 용도로 돌아가기</a></footer>
 </main>
 </body>
 </html>

@@ -81,8 +81,14 @@ internal sealed class LayoutCheck
                 foreach (DataGridViewColumn column in grid.Columns)
                 {
                     var preferred = column.HeaderCell.PreferredSize;
+                    var headerStyle = column.HeaderCell.InheritedStyle;
+                    using var headerGraphics = grid.CreateGraphics();
+                    var measured = TextRenderer.MeasureText(headerGraphics, column.HeaderText, headerStyle.Font, Size.Empty, TextFormatFlags.SingleLine);
+                    Observations.Add($"{prefix}: header '{column.HeaderText}' width={column.Width}; minimum={column.MinimumWidth}; preferred={preferred}; content={column.HeaderCell.GetContentBounds(-1)}; font={headerStyle.Font}; padding={headerStyle.Padding}; ownPadding={column.HeaderCell.Style.Padding}; sort={column.SortMode}; auto={column.InheritedAutoSizeMode}; drawDpi={headerGraphics.DpiX}; measured={measured}");
                     Check(grid.ColumnHeadersHeight + 2 >= preferred.Height, prefix, $"header {column.HeaderText}: height {grid.ColumnHeadersHeight} < {preferred.Height}");
                     Check(column.Width + 2 >= preferred.Width, prefix, $"header {column.HeaderText}: width {column.Width} < {preferred.Width}");
+                    if (column.HeaderText.Length > 0 && headerStyle.WrapMode != DataGridViewTriState.True)
+                        Check(column.HeaderCell.GetContentBounds(-1).Width + 2 >= measured.Width, prefix, $"header {column.HeaderText}: rendered text is narrower than full text ({measured.Width}px)");
                 }
                 foreach (DataGridViewRow row in grid.Rows)
                 {
@@ -128,7 +134,7 @@ internal sealed class LayoutCheck
         var search = controls.OfType<TextBox>().Single(control => control.AccessibleName == "프로그램 검색");
         var platform = controls.OfType<ComboBox>().Single(control => control.AccessibleName == "대상 Windows");
         search.Text = "no-matching-program-" + Guid.NewGuid().ToString("N");
-        foreach (var text in new[] { "실행", "편집", "목록에서 제거", "설치 / 업데이트", "기존 설치 연결", "버전 / Windows 배포본 추가", "설명 / 이력" })
+        foreach (var text in new[] { "실행", "편집", "목록에서 제거", "설치 / 업데이트", "기존 설치 연결", "설명 / 이력" })
             Check(!buttons.Single(button => button.Text == text).Enabled, "actions/empty", text + " should be disabled without a selected program");
         search.Clear();
         foreach (var text in new[] { "실행", "편집", "목록에서 제거", "설치 / 업데이트", "기존 설치 연결" })

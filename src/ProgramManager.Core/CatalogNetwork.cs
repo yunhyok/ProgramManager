@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Net;
+using System.Net.Http;
 using System.Net.Security;
 using System.Net.Sockets;
 using System.Security.Authentication;
@@ -20,8 +21,13 @@ internal sealed class WireMessage
     public string Version { get; set; } = "";
     public string Platform { get; set; } = "";
     public string Error { get; set; } = "";
+    public string ErrorCode { get; set; } = "";
+    public int Capabilities { get; set; }
+    public string GitHubRepository { get; set; } = "";
+    public string Sha256 { get; set; } = "";
     public long Size { get; set; }
     public Catalog? Catalog { get; set; }
+    public AppRelease? Release { get; set; }
 }
 
 internal static class Wire
@@ -125,20 +131,70 @@ public sealed class CatalogServer : IDisposable
                 if (request.Token is null || !Compat.Equal(identity.Token, request.Token))
                 { await Wire.WriteAsync(tls, new WireMessage { Error = "호스트 인증에 실패했습니다. 연결 코드를 다시 확인하세요." }, deadline.Token).ConfigureAwait(false); return; }
                 deadline.CancelAfter(TimeSpan.FromMinutes(30));
-                if (request.Operation == "catalog")
-                    await Wire.WriteAsync(tls, new WireMessage { Catalog = store.Read() }, deadline.Token).ConfigureAwait(false);
-                else if (request.Operation == "package")
+                // Report preparation failures before sending a body. A partial body always closes the connection.
+                var responseStarted = false;
+                try
                 {
-                    var path = store.GetPackagePath(request.Id, request.Version, request.Platform);
-                    using var input = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, true);
-                    await Wire.WriteAsync(tls, new WireMessage { Size = input.Length }, deadline.Token).ConfigureAwait(false);
-                    await input.CopyToAsync(tls, 81920, deadline.Token).ConfigureAwait(false);
-                    await tls.FlushAsync(deadline.Token).ConfigureAwait(false);
+                    if (request.Operation == "catalog")
+                    {
+                        var catalog = store.Read();
+                        if (request.Capabilities < 1 && catalog.Apps.Any(a => !string.IsNullOrEmpty(a.GitHubRepository)))
+                            await Wire.WriteAsync(tls, new WireMessage { ErrorCode = "client_update_required", Error = "GitHub 배포 목록을 사용하려면 클라이언트 Program Manager를 0.2.0 이상으로 업데이트하세요." }, deadline.Token).ConfigureAwait(false);
+                        else await Wire.WriteAsync(tls, new WireMessage { Capabilities = 1, Catalog = catalog }, deadline.Token).ConfigureAwait(false);
+                    }
+                    else if (request.Operation == "package")
+                    {
+                        var app = store.Read().Apps.SingleOrDefault(a => a.Id == request.Id) ?? throw new FileNotFoundException();
+                        if (request.Capabilities < 1 && !string.IsNullOrEmpty(app.GitHubRepository))
+                        {
+                            await Wire.WriteAsync(tls, new WireMessage { ErrorCode = "client_update_required", Error = "GitHub 설치 파일을 받으려면 클라이언트 Program Manager를 0.2.0 이상으로 업데이트하세요." }, deadline.Token).ConfigureAwait(false);
+                            return;
+                        }
+                        using var package = await store.PreparePackageAsync(request.Id, request.Version, request.Platform, deadline.Token).ConfigureAwait(false);
+                        var release = package.Release;
+                        var header = new WireMessage
+                        {
+                            Id = app.Id, GitHubRepository = app.GitHubRepository, Size = release.Size,
+                            Release = new AppRelease
+                            {
+                                Version = release.Version, Platform = release.Platform, Size = release.Size,
+                                FileName = release.FileName, Sha256 = release.Sha256, PublishedUtc = release.PublishedUtc,
+                                GitHubAssetId = release.GitHubAssetId, GitHubTag = release.GitHubTag
+                            }
+                        };
+                        responseStarted = true;
+                        await Wire.WriteAsync(tls, header, deadline.Token).ConfigureAwait(false);
+                        await package.Content.CopyToAsync(tls, 81920, deadline.Token).ConfigureAwait(false);
+                        await tls.FlushAsync(deadline.Token).ConfigureAwait(false);
+                    }
+                    else if (request.Operation == "documentation")
+                    {
+                        CatalogRules.Id(request.Id);
+                        var app = store.Read().Apps.SingleOrDefault(a => a.Id == request.Id) ?? throw new FileNotFoundException();
+                        var html = await store.FetchDocumentationAsync(app.Id, deadline.Token).ConfigureAwait(false);
+                        if (html.Length is < 1 or > CatalogRules.MaxDocumentationBytes) throw new InvalidDataException();
+                        responseStarted = true;
+                        await Wire.WriteAsync(tls, new WireMessage { Operation = "documentation", Id = app.Id, GitHubRepository = app.GitHubRepository, Size = html.Length, Sha256 = Compat.Hash(html) }, deadline.Token).ConfigureAwait(false);
+                        await tls.WriteAsync(html, 0, html.Length, deadline.Token).ConfigureAwait(false);
+                        await tls.FlushAsync(deadline.Token).ConfigureAwait(false);
+                    }
+                    else await Wire.WriteAsync(tls, new WireMessage { ErrorCode = "unsupported_request", Error = "지원하지 않는 요청입니다." }, deadline.Token).ConfigureAwait(false);
                 }
-                else await Wire.WriteAsync(tls, new WireMessage { Error = "지원하지 않는 요청입니다." }, deadline.Token).ConfigureAwait(false);
+                catch (Exception ex) when (!responseStarted && !deadline.IsCancellationRequested && ex is HttpRequestException or IOException or InvalidDataException or InvalidOperationException or UnauthorizedAccessException or ArgumentException or OperationCanceledException)
+                {
+                    var response = ex switch
+                    {
+                        HttpRequestException => new WireMessage { ErrorCode = "upstream_unavailable", Error = "호스트에서 GitHub에 연결하지 못했습니다. 호스트의 인터넷 연결과 GitHub 접근 권한을 확인하세요." },
+                        OperationCanceledException => new WireMessage { ErrorCode = "upstream_timeout", Error = "호스트에서 GitHub 응답을 기다리다 시간이 초과되었습니다. 잠시 후 다시 시도하세요." },
+                        FileNotFoundException => new WireMessage { ErrorCode = "not_found", Error = "요청한 프로그램이나 설치 파일을 찾을 수 없습니다. 배포 목록을 새로고침하세요." },
+                        InvalidDataException or ArgumentException => new WireMessage { ErrorCode = "invalid_content", Error = "요청 정보 또는 원본 파일을 검증하지 못했습니다. 호스트에서 GitHub 목록을 새로고침하세요." },
+                        _ => new WireMessage { ErrorCode = "host_unavailable", Error = "호스트가 파일을 준비하지 못했습니다. 호스트의 GitHub 연결 설정과 저장 공간을 확인한 뒤 다시 시도하세요." }
+                    };
+                    await Wire.WriteAsync(tls, response, deadline.Token).ConfigureAwait(false);
+                }
             }
         }
-        catch (Exception ex) when (ex is IOException or SocketException or AuthenticationException or System.ComponentModel.Win32Exception or OperationCanceledException or ObjectDisposedException or InvalidDataException or JsonException or InvalidOperationException)
+        catch (Exception ex) when (ex is IOException or SocketException or AuthenticationException or System.ComponentModel.Win32Exception or OperationCanceledException or ObjectDisposedException or InvalidDataException or JsonException or InvalidOperationException or HttpRequestException or UnauthorizedAccessException or ArgumentException)
         { /* Rejected/aborted connection: no untrusted input or secrets enter logs. */ }
         finally { clients.TryRemove(client, out _); slots.Release(); }
     }
@@ -173,7 +229,7 @@ public sealed class CatalogClient : IDisposable
         using var client = new TcpClient();
         using var close = deadline.Token.Register(client.Close);
         using var tls = await ConnectAsync(client, deadline.Token).ConfigureAwait(false);
-        await Wire.WriteAsync(tls, new WireMessage { Operation = "catalog", Token = info.Token }, deadline.Token).ConfigureAwait(false);
+        await Wire.WriteAsync(tls, new WireMessage { Operation = "catalog", Token = info.Token, Capabilities = 1 }, deadline.Token).ConfigureAwait(false);
         var response = await Wire.ReadAsync(tls, CatalogRules.MaxCatalogBytes, deadline.Token).ConfigureAwait(false);
         CheckResponse(response);
         var catalog = CatalogRules.Validate(response.Catalog!);
@@ -186,12 +242,12 @@ public sealed class CatalogClient : IDisposable
         CatalogRules.Id(app.Id);
         var version = CatalogRules.NormalizeVersion(release.Version);
         CatalogRules.Platform(release.Platform);
-        var trusted = snapshot?.Apps.SingleOrDefault(a => a.Id == app.Id)?.Releases.SingleOrDefault(r => CatalogRules.NormalizeVersion(r.Version) == version && r.Platform == release.Platform)
+        var trustedApp = TrustedApp(app.Id);
+        var trusted = trustedApp.Releases.SingleOrDefault(r => CatalogRules.NormalizeVersion(r.Version) == version && r.Platform == release.Platform)
             ?? throw new InvalidOperationException("먼저 같은 연결에서 카탈로그를 새로고침하세요.");
         destination = Path.GetFullPath(destination);
         Directory.CreateDirectory(destination);
-        var final = Path.Combine(destination, app.Id + "-" + version + "-" + trusted.Platform + "-" + trusted.Sha256.Substring(0, 12) + Path.GetExtension(trusted.FileName).ToLowerInvariant());
-        var temporary = final + "." + Guid.NewGuid().ToString("N") + ".part";
+        var temporary = Path.Combine(destination, app.Id + "." + Guid.NewGuid().ToString("N") + ".part");
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token, lifetime.Token);
         deadline.CancelAfter(TimeSpan.FromMinutes(30));
         using var client = new TcpClient();
@@ -199,36 +255,91 @@ public sealed class CatalogClient : IDisposable
         try
         {
             using var tls = await ConnectAsync(client, deadline.Token).ConfigureAwait(false);
-            await Wire.WriteAsync(tls, new WireMessage { Operation = "package", Token = info.Token, Id = app.Id, Version = version, Platform = trusted.Platform }, deadline.Token).ConfigureAwait(false);
-            var response = await Wire.ReadAsync(tls, 8192, deadline.Token).ConfigureAwait(false);
+            await Wire.WriteAsync(tls, new WireMessage { Operation = "package", Token = info.Token, Capabilities = 1, Id = app.Id, Version = version, Platform = trusted.Platform }, deadline.Token).ConfigureAwait(false);
+            var response = await Wire.ReadAsync(tls, 65536, deadline.Token).ConfigureAwait(false);
             CheckResponse(response);
-            if (response.Size != trusted.Size) throw new InvalidDataException("설치 파일 크기가 카탈로그와 다릅니다.");
-            using (var file = new FileStream(temporary, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None, 81920, true))
-            using (var sha = SHA256.Create())
+            var actual = response.Release;
+            if (actual is null)
             {
-                var buffer = new byte[81920];
-                long received = 0;
-                var lastPercent = -1;
-                while (received < trusted.Size)
-                {
-                    var read = await tls.ReadAsync(buffer, 0, (int)Math.Min(buffer.Length, trusted.Size - received), deadline.Token).ConfigureAwait(false);
-                    if (read == 0) throw new EndOfStreamException("설치 파일 다운로드가 중단되었습니다.");
-                    await file.WriteAsync(buffer, 0, read, deadline.Token).ConfigureAwait(false);
-                    sha.TransformBlock(buffer, 0, read, null, 0);
-                    received += read;
-                    var percent = (int)(received * 100 / trusted.Size);
-                    if (percent != lastPercent) { progress?.Report(percent); lastPercent = percent; }
-                }
-                sha.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
-                if (!Compat.Equal(Compat.Hex(sha.Hash!), trusted.Sha256.ToUpperInvariant())) throw new InvalidDataException("설치 파일 SHA-256 검증에 실패했습니다.");
-                await file.FlushAsync(deadline.Token).ConfigureAwait(false);
-                file.Flush(true);
+                // A pre-GitHub host is still valid for a catalog with a known digest.
+                if (!string.IsNullOrEmpty(trustedApp.GitHubRepository) || !IsSha256(trusted.Sha256))
+                    throw new InvalidDataException("호스트를 업데이트한 뒤 배포 목록을 새로고침하세요.");
+                actual = trusted;
             }
+            else if (response.Id != trustedApp.Id || response.GitHubRepository != trustedApp.GitHubRepository
+                || CatalogRules.NormalizeVersion(actual.Version) != version || actual.Platform != trusted.Platform
+                || actual.FileName != trusted.FileName || actual.Size != trusted.Size || actual.PublishedUtc != trusted.PublishedUtc
+                || actual.GitHubAssetId != trusted.GitHubAssetId || actual.GitHubTag != trusted.GitHubTag
+                || !IsSha256(actual.Sha256)
+                || (!string.IsNullOrEmpty(trusted.Sha256) && !Compat.Equal(actual.Sha256.ToUpperInvariant(), trusted.Sha256.ToUpperInvariant())))
+                throw new InvalidDataException("설치 파일 정보가 카탈로그와 다릅니다. 배포 목록을 새로고침하세요.");
+            if (response.Size != trusted.Size) throw new InvalidDataException("설치 파일 크기가 카탈로그와 다릅니다.");
+            await ReceiveFileAsync(tls, temporary, actual.Size, actual.Sha256, progress, deadline.Token).ConfigureAwait(false);
             deadline.Token.ThrowIfCancellationRequested();
+            var final = Path.Combine(destination, trustedApp.Id + "-" + version + "-" + trusted.Platform + "-" + actual.Sha256.Substring(0, 12).ToUpperInvariant() + Path.GetExtension(trusted.FileName).ToLowerInvariant());
             Compat.Replace(temporary, final);
             return final;
         }
         finally { if (File.Exists(temporary)) File.Delete(temporary); }
+    }
+
+    public async Task<string> DownloadDocumentationAsync(CatalogApp app, string destination, CancellationToken token = default)
+    {
+        CatalogRules.Id(app.Id);
+        var trusted = TrustedApp(app.Id);
+        destination = Path.GetFullPath(destination);
+        Directory.CreateDirectory(destination);
+        var temporary = Path.Combine(destination, trusted.Id + "." + Guid.NewGuid().ToString("N") + ".part");
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token, lifetime.Token);
+        deadline.CancelAfter(TimeSpan.FromMinutes(5));
+        using var client = new TcpClient();
+        using var close = deadline.Token.Register(client.Close);
+        try
+        {
+            using var tls = await ConnectAsync(client, deadline.Token).ConfigureAwait(false);
+            await Wire.WriteAsync(tls, new WireMessage { Operation = "documentation", Token = info.Token, Capabilities = 1, Id = trusted.Id }, deadline.Token).ConfigureAwait(false);
+            var response = await Wire.ReadAsync(tls, 8192, deadline.Token).ConfigureAwait(false);
+            CheckResponse(response);
+            if (response.Operation != "documentation" || response.Id != trusted.Id || response.GitHubRepository != trusted.GitHubRepository
+                || response.Size is < 1 or > CatalogRules.MaxDocumentationBytes || !IsSha256(response.Sha256))
+                throw new InvalidDataException("호스트가 보낸 설명 페이지 정보가 올바르지 않습니다.");
+            await ReceiveFileAsync(tls, temporary, response.Size, response.Sha256, null, deadline.Token).ConfigureAwait(false);
+            // The host creates a self-contained page; reject malformed UTF-8 before opening it locally.
+            _ = new System.Text.UTF8Encoding(false, true).GetString(File.ReadAllBytes(temporary));
+            deadline.Token.ThrowIfCancellationRequested();
+            var final = Path.Combine(destination, trusted.Id + "-" + response.Sha256.Substring(0, 12).ToUpperInvariant() + ".html");
+            Compat.Replace(temporary, final);
+            return final;
+        }
+        finally { if (File.Exists(temporary)) File.Delete(temporary); }
+    }
+
+    private CatalogApp TrustedApp(string id) => snapshot?.Apps.SingleOrDefault(a => a.Id == id)
+        ?? throw new InvalidOperationException("먼저 같은 연결에서 카탈로그를 새로고침하세요.");
+
+    private static bool IsSha256(string value) => value is not null && value.Length == 64 && value.All(Uri.IsHexDigit);
+
+    private static async Task ReceiveFileAsync(Stream source, string temporary, long size, string digest, IProgress<int>? progress, CancellationToken token)
+    {
+        using var file = new FileStream(temporary, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None, 81920, true);
+        using var sha = SHA256.Create();
+        var buffer = new byte[81920];
+        long received = 0;
+        var lastPercent = -1;
+        while (received < size)
+        {
+            var read = await source.ReadAsync(buffer, 0, (int)Math.Min(buffer.Length, size - received), token).ConfigureAwait(false);
+            if (read == 0) throw new EndOfStreamException("파일 다운로드가 중단되었습니다.");
+            await file.WriteAsync(buffer, 0, read, token).ConfigureAwait(false);
+            sha.TransformBlock(buffer, 0, read, null, 0);
+            received += read;
+            var percent = (int)(received * 100 / size);
+            if (percent != lastPercent) { progress?.Report(percent); lastPercent = percent; }
+        }
+        sha.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
+        if (!Compat.Equal(Compat.Hex(sha.Hash!), digest.ToUpperInvariant())) throw new InvalidDataException("파일 SHA-256 검증에 실패했습니다.");
+        await file.FlushAsync(token).ConfigureAwait(false);
+        file.Flush(true);
     }
 
     private async Task<SslStream> ConnectAsync(TcpClient client, CancellationToken token)
@@ -251,7 +362,11 @@ public sealed class CatalogClient : IDisposable
 
     private static void CheckResponse(WireMessage response)
     {
-        if (!string.IsNullOrEmpty(response.Error)) throw new InvalidOperationException(response.Error);
+        if (!string.IsNullOrEmpty(response.Error))
+        {
+            CatalogRules.Text(response.Error, 2000);
+            throw new InvalidOperationException(response.Error);
+        }
     }
 
     public void Dispose() { lifetime.Cancel(); lifetime.Dispose(); }

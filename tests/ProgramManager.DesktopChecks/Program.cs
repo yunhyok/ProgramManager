@@ -88,13 +88,21 @@ internal static class DesktopCheckRunner
             bitmap.Save(path, System.Drawing.Imaging.ImageFormat.Png);
             Console.WriteLine(path);
         }
-        foreach (var dialogName in new[] { "register", "publish", "settings", "pairing", "history" })
+        foreach (var dialogName in new[] { "register", "github-settings", "repositories", "settings", "pairing", "history", "help" })
         {
             EventHandler? capture = null;
             capture = (_, _) =>
             {
                 var dialog = Application.OpenForms.Cast<Form>().LastOrDefault(f => f != form && f.Modal);
                 if (dialog is null) return;
+                if (dialogName == "help")
+                {
+                    var browser = dialog.Controls.OfType<WebBrowser>().Single();
+                    if (browser.ReadyState != WebBrowserReadyState.Complete) return;
+                    Assert(browser.Document?.GetElementById("host") != null && browser.Document.Body.InnerText.Contains("GitHub") && browser.Url.Fragment == "#host", "installed HTML viewer loads real guide and selected section without browser association");
+                    browser.Navigate("https://example.invalid/");
+                    Assert(browser.Url.IsFile, "offline viewer blocks external navigation");
+                }
                 Application.Idle -= capture;
                 layout?.Prepare(dialog);
                 layout?.Inspect(dialog, dialogName);
@@ -109,9 +117,11 @@ internal static class DesktopCheckRunner
             try
             {
                 if (dialogName == "register") Dialogs.EditLocal(form, state.Settings.Programs[0]);
-                else if (dialogName == "publish") Dialogs.Publish(form, sampleCatalog.Apps[0]);
+                else if (dialogName == "github-settings") GitHubDialogs.Settings(form, state.Settings);
+                else if (dialogName == "repositories") GitHubDialogs.Sources(form, "sample-account", new List<GitHubRepository> { new() { FullName = "sample-account/IntraDrop", Description = "내부망 파일 전송", Private = false }, new() { FullName = "sample-account/spd-decap-pi-evaluator", Description = "SPD 파일 분석 및 전원 무결성 평가", Private = true } }, new List<GitHubSelection> { new() { Repository = "sample-account/IntraDrop" } });
                 else if (dialogName == "settings") Dialogs.Settings(form, state);
                 else if (dialogName == "pairing") Dialogs.ShowPairing(form, "Test-only connection code. No real host credentials.", "192.0.2.10:45672");
+                else if (dialogName == "help") typeof(MainForm).GetMethod("ShowHelp", flags)!.Invoke(form, null);
                 else typeof(MainForm).GetMethod("ShowHostHistory", flags)!.Invoke(form, null);
             }
             finally { Application.Idle -= capture; }
@@ -176,6 +186,26 @@ internal static class DesktopCheckRunner
         Reject(() => state.SaveProgram(new LocalProgram { Id = "../../escape", Name = "Invalid", Path = executable }), "hostile shortcut identity");
         var load = new AppState(appRoot);
         Assert(load.Settings.Programs.Count == 2 && File.Exists(load.Settings.Programs[0].Path), "persisted programs reload");
+        var githubSettings = AppState.Clone(load.Settings);
+        githubSettings.GitHubOwner = "sample-account";
+        githubSettings.UseGitHubCli = false;
+        githubSettings.CacheRetentionDays = 14;
+        githubSettings.GitHubRepositories.Add(new GitHubSelection { Repository = "sample-account/private-tool" });
+        var programsBefore = JsonSerializer.Serialize(load.Settings.Programs);
+        load.CommitSettings(githubSettings);
+        var reloaded = new AppState(appRoot).Settings;
+        Assert(JsonSerializer.Serialize(reloaded.Programs) == programsBefore && reloaded.GitHubRepositories.Count == 1 && reloaded.CacheRetentionDays == 14, "GitHub settings preserve local registrations");
+        CheckGitHubSelection();
+        var consentApp = new CatalogApp { Id = "sample", GitHubRepository = "sample-account/tool" };
+        var consentRelease = new AppRelease { Version = "1.2.3", Platform = "win10-x64", FileName = "Setup.exe", Size = 123, GitHubAssetId = 1, GitHubTag = "v1.2.3", PublishedUtc = DateTimeOffset.UtcNow };
+        Assert(MainForm.SameInstaller(consentApp, consentRelease, consentApp, consentRelease), "unchanged digestless installer consent");
+        foreach (var mutate in new Action<AppRelease>[] { r => r.GitHubAssetId++, r => r.GitHubTag = "1.2.3", r => r.FileName = "Other.exe", r => r.Size++, r => r.Sha256 = new string('A', 64), r => r.PublishedUtc = r.PublishedUtc.AddSeconds(1) })
+        {
+            var changed = JsonSerializer.Deserialize<AppRelease>(JsonSerializer.Serialize(consentRelease))!;
+            mutate(changed);
+            Assert(!MainForm.SameInstaller(consentApp, consentRelease, consentApp, changed), "changed installer identity invalidates consent");
+        }
+        Assert(!MainForm.SameInstaller(consentApp, consentRelease, new CatalogApp { Id = consentApp.Id, GitHubRepository = "sample-account/other" }, consentRelease), "changed repository invalidates consent");
         var cachePath = Path.Combine(appRoot, "cache.json");
         File.WriteAllText(cachePath, "{\"Catalog\":null}");
         Reject(() => new AppState(appRoot), "null cached catalog");
@@ -187,6 +217,29 @@ internal static class DesktopCheckRunner
         Reject(() => new AppState(appRoot), "null persisted local path");
         var versions = new CatalogApp { Releases = [new AppRelease { Version = "1.9", Platform = "win7" }, new AppRelease { Version = "1.10.0", Platform = "win7" }, new AppRelease { Version = "2.0", Platform = "win10-x64" }] };
         Assert(Platforms.Latest(versions, Platforms.Legacy)!.Version == "1.10.0" && Platforms.Latest(versions, Platforms.Modern)!.Version == "2.0", "target-specific numeric latest");
+    }
+
+    private static void CheckGitHubSelection()
+    {
+        using var owner = new Form();
+        EventHandler? save = null;
+        save = (_, _) =>
+        {
+            var dialog = Application.OpenForms.Cast<Form>().LastOrDefault(f => f.Modal);
+            if (dialog is null) return;
+            Application.Idle -= save;
+            var layout = (TableLayoutPanel)dialog.Controls[0];
+            var grid = layout.Controls.OfType<DataGridView>().Single();
+            Assert(grid.Rows.Count == 2 && Convert.ToBoolean(grid.Rows.Cast<DataGridViewRow>().Single(r => (string)r.Cells[1].Value == "sample-account/private-tool").Cells[0].Value), "inaccessible prior repository remains checked");
+            ((Button)dialog.AcceptButton!).PerformClick();
+        };
+        Application.Idle += save;
+        try
+        {
+            var selected = GitHubDialogs.Sources(owner, "sample-account", [new GitHubRepository { FullName = "sample-account/public-tool" }], [new GitHubSelection { Repository = "sample-account/private-tool", LegacyAssetPattern = "*win7*.exe" }]);
+            Assert(selected?.Count == 1 && selected[0].Repository == "sample-account/private-tool" && selected[0].LegacyAssetPattern == "*win7*.exe", "selection save preserves invisible repository and platform pattern");
+        }
+        finally { Application.Idle -= save; }
     }
 
     private static void MakeShortcut(string path, string target, string arguments, string workingDirectory)

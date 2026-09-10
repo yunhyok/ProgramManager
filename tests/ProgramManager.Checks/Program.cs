@@ -18,7 +18,7 @@ internal static class Program
             if (args.Length == 2 && args[0] == "--client") { await Client(args[1]); return 0; }
             var root = Path.Combine(Path.GetTempPath(), "ProgramManagerChecks-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(root);
-            try { await Checks(root); }
+            try { await Checks(root); await GitHubTransportChecks.RunAsync(root); await GitHubChecks.RunAsync(root); }
             finally
             {
                 if (!Path.GetFullPath(root).StartsWith(Path.GetFullPath(Path.GetTempPath()), StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Unexpected test path");

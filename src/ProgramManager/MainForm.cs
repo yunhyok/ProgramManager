@@ -10,7 +10,7 @@ internal sealed class MainForm : Form
     private readonly TabControl _tabs = new() { Dock = DockStyle.Fill, Padding = new Point(20, 10) };
     private readonly DataGridView _local = Ui.Grid(("프로그램", 26), ("설치 버전", 13), ("업데이트", 16), ("실행 경로", 45));
     private readonly DataGridView _catalog = Ui.Grid(("프로그램", 29), ("설치 버전", 15), ("배포 버전", 15), ("상태", 16), ("설명", 35));
-    private readonly DataGridView _host = Ui.Grid(("프로그램", 26), ("ID", 23), ("Win 10/11", 15), ("Win 7/8", 15), ("배포본 수", 12));
+    private readonly DataGridView _host = Ui.Grid(("프로그램", 26), ("GitHub 저장소", 30), ("Win 10/11", 15), ("Win 7/8", 15), ("배포본 수", 12));
     private readonly TextBox _search = new() { Width = 250, AccessibleName = "프로그램 검색" };
     private readonly ComboBox _platform = new() { Width = 230, DropDownStyle = ComboBoxStyle.DropDownList, AccessibleName = "대상 Windows" };
     private readonly TextBox _details = new() { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, BackColor = Color.White, BorderStyle = BorderStyle.None, AccessibleName = "프로그램 설명과 버전 기록" };
@@ -24,6 +24,9 @@ internal sealed class MainForm : Form
     private string _fingerprint = "";
     private HostIdentity? _identity;
     private CatalogServer? _server;
+    private GitHubApi? _githubApi;
+    private readonly System.Windows.Forms.Timer _cacheTimer = new() { Interval = 60 * 60 * 1000 };
+    private readonly Button _enableHost;
     private CancellationTokenSource? _operation;
     private bool _busy, _quitting;
 
@@ -77,7 +80,7 @@ internal sealed class MainForm : Form
         var remove = Ui.Button("목록에서 제거", (_, _) => RemoveLocal());
         launch.Enabled = edit.Enabled = remove.Enabled = false;
         _local.SelectionChanged += (_, _) => launch.Enabled = edit.Enabled = remove.Enabled = Selected<LocalProgram>(_local) != null;
-        _tabs.TabPages.Add(Page("내 프로그램", Ui.Bar(Ui.Button("+ 프로그램 등록", (_, _) => EditLocal(), true), launch, edit, remove), _local));
+        _tabs.TabPages.Add(Page("내 프로그램", Ui.Bar(Ui.Button("+ 프로그램 등록", (_, _) => EditLocal(), true), launch, edit, remove), _local, Ui.Label("이 PC의 프로그램을 등록하고 실행합니다. 배포 프로그램과 연결하려면 ‘배포 카탈로그’에서 ‘기존 설치 연결’을 선택하세요.", 9)));
         var catalogPane = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2 };
         catalogPane.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         catalogPane.RowStyles.Add(new RowStyle(SizeType.Percent, 64));
@@ -88,19 +91,22 @@ internal sealed class MainForm : Form
         catalogPane.Controls.Add(detailPanel, 0, 1);
         var install = Ui.Button("설치 / 업데이트", async (_, _) => await InstallAsync(), true);
         var link = Ui.Button("기존 설치 연결", (_, _) => LinkExisting());
-        install.Enabled = link.Enabled = false;
+        var offlineHelp = Ui.Button("오프라인 설명", async (_, _) => await OpenDocumentationAsync(false));
+        install.Enabled = link.Enabled = offlineHelp.Enabled = false;
         _catalog.SelectionChanged += (_, _) =>
         {
             var app = Selected<CatalogApp>(_catalog);
+            offlineHelp.Enabled = app != null;
             link.Enabled = app != null && TargetPlatform == Platforms.Current;
             install.Enabled = link.Enabled && Platforms.Latest(app!, TargetPlatform) != null;
         };
-        _tabs.TabPages.Add(Page("배포 카탈로그", Ui.Bar(_platform, install, link), catalogPane));
-        var addRelease = Ui.Button("버전 / Windows 배포본 추가", async (_, _) => await PublishAsync(Selected<CatalogApp>(_host)));
+        _tabs.TabPages.Add(Page("배포 카탈로그", Ui.Bar(_platform, install, link, offlineHelp), catalogPane));
         var history = Ui.Button("설명 / 이력", (_, _) => ShowHostHistory());
-        addRelease.Enabled = history.Enabled = false;
-        _host.SelectionChanged += (_, _) => addRelease.Enabled = history.Enabled = Selected<CatalogApp>(_host) != null;
-        _tabs.TabPages.Add(Page("호스트 관리", Ui.Bar(Ui.Button("+ 새 프로그램", async (_, _) => await PublishAsync(null), true), addRelease, history, Ui.Button("연결 코드", (_, _) => ShowPairing()), Ui.Button("저장 폴더", (_, _) => OpenFolder(Path.Combine(_state.Root, "repository")))), _host, _hostStatus));
+        var hostHelp = Ui.Button("오프라인 설명", async (_, _) => await OpenDocumentationAsync(true));
+        history.Enabled = hostHelp.Enabled = false;
+        _host.SelectionChanged += (_, _) => history.Enabled = hostHelp.Enabled = Selected<CatalogApp>(_host) != null;
+        _enableHost = Ui.Button("호스트 켜기", async (_, _) => await EnableHostAsync(), true);
+        _tabs.TabPages.Add(Page("호스트 관리", Ui.Bar(_enableHost, Ui.Button("GitHub 설정", async (_, _) => await GitHubSettingsAsync()), Ui.Button("저장소 선택", async (_, _) => await SelectRepositoriesAsync(), true), Ui.Button("GitHub 동기화", async (_, _) => await SyncGitHubAsync()), history, hostHelp, Ui.Button("연결 코드", (_, _) => ShowPairing()), Ui.Button("임시 파일 정리", (_, _) => ClearTemporaryFiles())), _host, _hostStatus));
         _host.CellDoubleClick += (_, e) => { if (e.RowIndex >= 0) ShowHostHistory(); };
         _local.CellDoubleClick += (_, e) => { if (e.RowIndex >= 0) Launch(); };
         _local.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) { e.Handled = true; e.SuppressKeyPress = true; Launch(); } };
@@ -137,9 +143,11 @@ internal sealed class MainForm : Form
         Shown += async (_, _) =>
         {
             if (startInTray) Hide();
-            await RunAsync("시작 중…", async _ => { LoadCatalogs(); await RestartHostAsync(); Render(); });
+            await RunAsync("시작 중…", async _ => { LoadCatalogs(); await RestartHostAsync(); LoadCatalogs(); CleanupTemporaryFiles(false); Render(); });
             if (_state.Settings.PairingProtected.Length > 0) await RefreshAsync();
         };
+        _cacheTimer.Tick += (_, _) => { if (!_busy) CleanupTemporaryFiles(false); };
+        _cacheTimer.Start();
         Render();
         ResumeLayout(true);
     }
@@ -165,13 +173,16 @@ internal sealed class MainForm : Form
     private void LoadCatalogs()
     {
         _published = _state.Store.Read();
-        var pair = _state.Pairing;
+        var pair = ActivePairing;
         _fingerprint = pair?.Fingerprint ?? "";
-        _remote = pair != null && _state.Cache.Fingerprint == pair.Fingerprint ? _state.Cache.Catalog : new Catalog();
+        _remote = _state.Pairing is null && _state.Settings.HostEnabled ? _published : pair != null && _state.Cache.Fingerprint == pair.Fingerprint ? _state.Cache.Catalog : new Catalog();
     }
+
+    private PairingInfo? ActivePairing => _state.Pairing ?? (_state.Settings.HostEnabled && _identity != null ? _identity.CreatePairing("127.0.0.1", _state.Settings.Port) : null);
 
     private void Render()
     {
+        _enableHost.Enabled = !_state.Settings.HostEnabled;
         var localId = Selected<LocalProgram>(_local)?.Id;
         var catalogId = Selected<CatalogApp>(_catalog)?.Id;
         var hostId = Selected<CatalogApp>(_host)?.Id;
@@ -195,13 +206,13 @@ internal sealed class MainForm : Form
         }
         _host.Rows.Clear();
         foreach (var app in _published.Apps.Where(a => Matches(a.Name)).OrderBy(a => a.Name))
-            _host.Rows[_host.Rows.Add(app.Name, app.Id, Platforms.Latest(app, Platforms.Modern)?.Version ?? "—", Platforms.Latest(app, Platforms.Legacy)?.Version ?? "—", app.Releases.Count)].Tag = app;
+            _host.Rows[_host.Rows.Add(app.Name, app.GitHubRepository.Length > 0 ? app.GitHubRepository : app.Id, Platforms.Latest(app, Platforms.Modern)?.Version ?? "—", Platforms.Latest(app, Platforms.Legacy)?.Version ?? "—", app.Releases.Count)].Tag = app;
         RestoreSelection(_local, localId, x => ((LocalProgram)x).Id);
         RestoreSelection(_catalog, catalogId, x => ((CatalogApp)x).Id);
         RestoreSelection(_host, hostId, x => ((CatalogApp)x).Id);
         var updates = _state.Settings.Programs.Count(p => p.HostFingerprint == _fingerprint && _remote.Apps.Any(a => a.Id == p.CatalogId && Platforms.Latest(a, Platforms.Current) is AppRelease r && InstallStatus(p, r) == "업데이트 가능"));
         _summary.Text = $"내 프로그램 {_state.Settings.Programs.Count}개   ·   업데이트 {updates}개   ·   {Platforms.Label(Platforms.Current)}   ·   {(_state.Settings.HostEnabled ? "호스트 + 클라이언트" : "클라이언트")}";
-        _connection.Text = _fingerprint.Length == 0 ? "호스트 미연결 · 내 프로그램은 바로 등록하고 실행할 수 있습니다." : $"마지막 목록 확인: {_state.Cache.CheckedUtc.LocalDateTime:g} · 호스트 연결은 ‘설정’에서 변경할 수 있습니다.";
+        _connection.Text = _state.Settings.HostEnabled && _state.Pairing is null ? "이 PC의 배포 목록 · 다른 PC는 ‘연결 코드’를 설정에 붙여 넣으면 됩니다." : _fingerprint.Length == 0 ? "설치할 프로그램 목록을 받으려면 설정에서 호스트의 연결 코드를 붙여 넣으세요. 내 프로그램은 바로 사용할 수 있습니다." : $"마지막 목록 확인: {_state.Cache.CheckedUtc.LocalDateTime:g} · 설명과 설치 파일은 호스트가 준비합니다.";
         ShowDetails();
     }
 
@@ -229,7 +240,7 @@ internal sealed class MainForm : Form
         _details.Text = app is null ? "호스트에 연결하면 배포된 프로그램과 변경 내역이 여기에 표시됩니다.\r\n설정에서 연결 코드를 등록한 뒤 목록을 새로고침하세요." : Describe(app);
     }
 
-    private static string Describe(CatalogApp app) => app.Name + "\r\n" + app.Description + "\r\n\r\n" + string.Join("\r\n\r\n", app.Releases.OrderByDescending(r => Platforms.Numeric(r.Version)).ThenBy(r => r.Platform).Select(r => $"v{r.Version}  ·  {Platforms.Label(r.Platform)}  ·  {r.PublishedUtc.LocalDateTime:yyyy-MM-dd}\r\n{r.Notes}\r\n{r.FileName}  ({r.Size / 1048576d:N1} MB)"));
+    private static string Describe(CatalogApp app) => app.Name + "\r\n" + (app.GitHubRepository.Length > 0 ? "GitHub: " + app.GitHubRepository + "\r\n설치 파일과 설명은 요청할 때 호스트가 받아 전달합니다.\r\n" : "") + app.Description + "\r\n\r\n" + string.Join("\r\n\r\n", app.Releases.OrderByDescending(r => Platforms.Numeric(r.Version)).ThenBy(r => r.Platform).Select(r => $"v{r.Version}  ·  {Platforms.Label(r.Platform)}  ·  {r.PublishedUtc.LocalDateTime:yyyy-MM-dd}\r\n{r.Notes}\r\n{r.FileName}  ({r.Size / 1048576d:N1} MB)"));
 
     private void ShowHostHistory()
     {
@@ -287,7 +298,7 @@ internal sealed class MainForm : Form
         await RunAsync("배포 목록 확인 중…", async token =>
         {
             _published = await Task.Run(() => _state.Store.Read(), token);
-            var info = _state.Pairing;
+            var info = ActivePairing;
             if (info is null) { Render(); _status.Text = "호스트 미연결 · 설정에서 연결 코드를 등록하세요."; return; }
             using var client = new CatalogClient(info);
             var catalog = await client.FetchCatalogAsync(token);
@@ -300,18 +311,131 @@ internal sealed class MainForm : Form
         });
     }
 
-    private async Task PublishAsync(CatalogApp? app)
+    private async Task EnableHostAsync()
     {
         if (_busy) return;
-        if (!_state.Settings.HostEnabled) { _status.Text = "설정에서 호스트 역할을 켜세요."; return; }
-        var input = Dialogs.Publish(this, app);
-        if (input is null) return;
-        await RunAsync("설치 파일 등록 및 무결성 계산 중…", async token =>
+        await RunAsync("호스트 시작 중…", async _ =>
         {
-            _published = await Task.Run(() => _state.Store.PublishAsync(input.Id, input.Name, input.Description, input.Version, input.Notes, input.Path, input.Platform, token), token);
-            Render();
-            _status.Text = $"{input.Name} {input.Version} · {Platforms.Label(input.Platform)} 배포 등록 완료";
+            var next = AppState.Clone(_state.Settings); next.HostEnabled = true; _state.CommitSettings(next);
+            await RestartHostAsync(); LoadCatalogs(); Render();
+            _status.Text = "호스트가 켜졌습니다. ‘GitHub 설정’ 후 ‘저장소 선택’으로 배포할 프로그램을 고르세요.";
         });
+    }
+
+    private async Task ConfigureGitHubAsync(CancellationToken token)
+    {
+        var api = await GitHubCredentials.CreateAsync(_state.Settings, token);
+        var old = _githubApi; _githubApi = api; _state.Store.GitHub = api; old?.Dispose();
+    }
+
+    private async Task GitHubSettingsAsync()
+    {
+        if (_busy) return;
+        var change = GitHubDialogs.Settings(this, _state.Settings);
+        if (change is null) return;
+        await RunAsync("GitHub 설정 저장 중…", async token =>
+        {
+            var next = AppState.Clone(_state.Settings);
+            next.GitHubOwner = change.Owner; next.UseGitHubCli = change.AuthMode == 0; next.CacheRetentionDays = change.RetentionDays;
+            next.GitHubTokenProtected = change.AuthMode == 1 ? change.Token.Length > 0 ? Secrets.Protect(change.Token) : next.GitHubTokenProtected : "";
+            _state.CommitSettings(next);
+            await ConfigureGitHubAsync(token);
+            _status.Text = "GitHub 설정을 저장했습니다. ‘저장소 선택’에서 배포할 프로그램을 고르세요.";
+        });
+    }
+
+    private async Task SelectRepositoriesAsync()
+    {
+        if (_busy) return;
+        if (!_state.Settings.HostEnabled) { _status.Text = "먼저 ‘호스트 켜기’를 누르세요. 설치 목록은 그대로 유지됩니다."; return; }
+        await RunAsync("GitHub 저장소 목록을 가져오는 중…", async token =>
+        {
+            await ConfigureGitHubAsync(token);
+            var account = _state.Settings.GitHubOwner;
+            if (account.Length == 0) account = await _githubApi!.GetCurrentUserAsync(token);
+            var repositories = await _githubApi!.ListRepositoriesAsync(account, token);
+            var selected = GitHubDialogs.Sources(this, account, repositories, _state.Settings.GitHubRepositories);
+            if (selected is null) { _status.Text = "저장소 선택을 취소했습니다."; return; }
+            var previous = AppState.Clone(_state.Settings);
+            var next = AppState.Clone(previous); next.GitHubOwner = account; next.GitHubRepositories = selected;
+            _state.CommitSettings(next);
+            try { _published = await _state.Store.RefreshGitHubAsync(selected, token); }
+            catch { _state.CommitSettings(previous); throw; }
+            LoadCatalogs(); Render();
+            _status.Text = $"{_published.Apps.Count}개 프로그램 공유 준비 완료 · 설치 파일은 요청할 때 받습니다.";
+        });
+    }
+
+    private async Task SyncGitHubAsync()
+    {
+        if (_busy) return;
+        if (!_state.Settings.HostEnabled) { _status.Text = "먼저 ‘호스트 켜기’를 누르세요."; return; }
+        if (_state.Settings.GitHubRepositories.Count == 0) { await SelectRepositoriesAsync(); return; }
+        await RunAsync("GitHub Release 목록 동기화 중 · 설치 파일은 아직 받지 않습니다…", async token =>
+        {
+            await ConfigureGitHubAsync(token);
+            _published = await _state.Store.RefreshGitHubAsync(_state.Settings.GitHubRepositories, token);
+            LoadCatalogs(); Render();
+            _status.Text = $"GitHub 목록 {_published.Apps.Count}개 동기화 완료";
+        });
+    }
+
+    private async Task OpenDocumentationAsync(bool host)
+    {
+        if (_busy) return;
+        var selected = Selected<CatalogApp>(host ? _host : _catalog);
+        if (selected is null) return;
+        await RunAsync("호스트에서 오프라인 설명을 준비하는 중…", async token =>
+        {
+            string path;
+            if (host)
+            {
+                var html = await _state.Store.FetchDocumentationAsync(selected.Id, token);
+                Directory.CreateDirectory(_state.Documents);
+                path = Path.Combine(_state.Documents, CatalogRules.Id(selected.Id) + ".html");
+                File.WriteAllBytes(path, html);
+            }
+            else
+            {
+                using var client = new CatalogClient(ActivePairing ?? throw new InvalidOperationException("설정에서 호스트 연결 코드를 등록하세요."));
+                var fresh = await client.FetchCatalogAsync(token);
+                var app = fresh.Apps.Single(a => a.Id == selected.Id);
+                path = await client.DownloadDocumentationAsync(app, _state.Documents, token);
+            }
+            Dialogs.ShowHtml(this, path);
+            _status.Text = "오프라인 설명을 열었습니다. 이 페이지는 인터넷 없이 읽을 수 있습니다.";
+        });
+    }
+
+    private void CleanupTemporaryFiles(bool all)
+    {
+        var age = all ? TimeSpan.Zero : TimeSpan.FromDays(_state.Settings.CacheRetentionDays);
+        try
+        {
+            if (all) _state.Store.ClearCache(); else _state.Store.CleanupCache(age);
+            foreach (var directory in new[] { _state.Downloads, _state.Documents })
+            {
+                if (!Directory.Exists(directory) || (File.GetAttributes(directory) & FileAttributes.ReparsePoint) != 0) continue;
+                foreach (var path in Directory.GetFiles(directory))
+                {
+                    try
+                    {
+                        if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0 || DateTime.UtcNow - File.GetLastWriteTimeUtc(path) < age) continue;
+                        using (new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None)) { }
+                        File.Delete(path);
+                    }
+                    catch (IOException) { } catch (UnauthorizedAccessException) { }
+                }
+            }
+        }
+        catch (IOException) { } catch (UnauthorizedAccessException) { }
+    }
+
+    private void ClearTemporaryFiles()
+    {
+        if (_busy) return;
+        CleanupTemporaryFiles(true);
+        _status.Text = "사용하지 않는 임시 파일을 정리했습니다. 필요한 파일은 다음 요청 때 다시 받습니다.";
     }
 
     private void ShowPairing()
@@ -353,14 +477,14 @@ internal sealed class MainForm : Form
         if (Version.TryParse(old?.InstalledVersion, out _) && Platforms.Numeric(old!.InstalledVersion) > Platforms.Numeric(release.Version))
         { _status.Text = "현재 설치 버전이 더 높습니다. 자동 다운그레이드는 진행하지 않습니다."; return; }
         if (MessageBox.Show(this, $"{selected.Name} {release.Version}\n{Platforms.Label(release.Platform)} · {release.Size / 1048576d:N1} MB\n\n{release.Notes}\n\n다운로드 후 설치 프로그램을 실행할까요?", "설치 / 업데이트 · " + Program.DisplayName, MessageBoxButtons.OKCancel, MessageBoxIcon.Information) != DialogResult.OK) return;
-        await RunAsync("설치 파일 다운로드 중…", async token =>
+        await RunAsync("호스트에서 설치 파일 준비 / 다운로드 중…", async token =>
         {
-            var info = _state.Pairing ?? throw new InvalidOperationException("호스트 연결이 필요합니다.");
+            var info = ActivePairing ?? throw new InvalidOperationException("호스트 연결이 필요합니다.");
             using var client = new CatalogClient(info);
             var fresh = await client.FetchCatalogAsync(token);
             var app = fresh.Apps.Single(a => a.Id == selected.Id);
             var verifiedRelease = app.Releases.Single(r => r.Platform == release.Platform && Platforms.Numeric(r.Version) == Platforms.Numeric(release.Version));
-            if (verifiedRelease.Sha256 != release.Sha256 || verifiedRelease.Size != release.Size) throw new InvalidDataException("배포 파일 정보가 변경되었습니다. 목록을 새로고침한 후 다시 확인하세요.");
+            if (!SameInstaller(selected, release, app, verifiedRelease)) throw new InvalidDataException("배포 파일 정보가 변경되었습니다. 목록을 새로고침한 후 다시 확인하세요.");
             var package = await client.DownloadAsync(app, verifiedRelease, _state.Downloads, new Progress<int>(p => _progress.Value = Math.Max(0, Math.Min(100, p))), token);
             token.ThrowIfCancellationRequested();
             _cancel.Visible = false;
@@ -378,6 +502,12 @@ internal sealed class MainForm : Form
             else _status.Text = "설치 확인을 취소했습니다. 기존 설치 버전 기록을 유지합니다.";
         });
     }
+
+    internal static bool SameInstaller(CatalogApp selected, AppRelease release, CatalogApp current, AppRelease candidate) =>
+        selected.Id == current.Id && selected.GitHubRepository == current.GitHubRepository
+        && release.Platform == candidate.Platform && Platforms.Numeric(release.Version) == Platforms.Numeric(candidate.Version)
+        && release.Size == candidate.Size && release.Sha256 == candidate.Sha256 && release.FileName == candidate.FileName
+        && release.GitHubAssetId == candidate.GitHubAssetId && release.GitHubTag == candidate.GitHubTag && release.PublishedUtc == candidate.PublishedUtc;
 
     private async Task SettingsAsync()
     {
@@ -397,7 +527,8 @@ internal sealed class MainForm : Form
                 newCache = new CachedCatalog { Catalog = remote, CheckedUtc = DateTimeOffset.UtcNow, Fingerprint = info.Fingerprint };
             }
             if (change.Disconnect) protectedPairing = "";
-            var next = new UserSettings { HostEnabled = change.HostEnabled, Port = change.Port, AdvertisedHost = change.Host, AutoStart = change.AutoStart, PairingProtected = protectedPairing, Programs = _state.Settings.Programs };
+            var next = AppState.Clone(_state.Settings);
+            next.HostEnabled = change.HostEnabled; next.Port = change.Port; next.AdvertisedHost = change.Host; next.AutoStart = change.AutoStart; next.PairingProtected = protectedPairing;
             _state.CommitSettings(next);
             try
             {
@@ -413,12 +544,18 @@ internal sealed class MainForm : Form
     private async Task RestartHostAsync()
     {
         if (_server != null) { await _server.StopAsync(); _server.Dispose(); _server = null; }
-        if (!_state.Settings.HostEnabled) { _hostStatus.Text = "호스트 꺼짐 · 설정에서 호스트 역할을 선택하세요."; return; }
+        if (!_state.Settings.HostEnabled) { _hostStatus.Text = "다른 PC에 배포하려면 ‘호스트 켜기’ → ‘GitHub 설정’ → ‘저장소 선택’ 순서로 진행하세요."; return; }
         _identity ??= await Task.Run(() => HostIdentity.LoadOrCreate(Path.Combine(_state.Root, "identity")));
+        string githubStatus = "";
+        if (_state.Settings.GitHubRepositories.Count > 0)
+        {
+            try { await ConfigureGitHubAsync(CancellationToken.None); }
+            catch (InvalidOperationException) { githubStatus = " · GitHub 로그인을 확인하세요. 보관된 파일은 계속 제공됩니다."; }
+        }
         var server = new CatalogServer(_state.Store, _identity);
         try { await server.StartAsync(_state.Settings.Port); _server = server; }
         catch { server.Dispose(); _hostStatus.Text = "호스트 시작 실패 · 포트 사용 여부와 설정을 확인하세요."; throw; }
-        _hostStatus.Text = $"배포 수신 중 · {_state.Settings.AdvertisedHost}:{_state.Settings.Port} · 연결 코드로 클라이언트를 등록하세요.";
+        _hostStatus.Text = $"1. GitHub 설정 → 2. 저장소 선택 / 동기화 → 3. 연결 코드 전달\n호스트 실행 중 · {_state.Settings.AdvertisedHost}:{_state.Settings.Port}{githubStatus}";
     }
 
     private async Task RunAsync(string message, Func<CancellationToken, Task> work)
@@ -455,12 +592,7 @@ internal sealed class MainForm : Form
     private void ShowManager() { Show(); WindowState = FormWindowState.Normal; Activate(); }
     private void ShowHelp()
     {
-        try { Process.Start(new ProcessStartInfo(Path.Combine(AppContext.BaseDirectory, "guide.html")) { UseShellExecute = true }); }
-        catch (Exception ex) { ShowError(ex); }
-    }
-    private void OpenFolder(string path)
-    {
-        try { Directory.CreateDirectory(path); Process.Start(new ProcessStartInfo(path) { UseShellExecute = true }); }
+        try { Dialogs.ShowHtml(this, Path.Combine(AppContext.BaseDirectory, "guide.html"), new[] { "launch", "client", "host" }[_tabs.SelectedIndex]); }
         catch (Exception ex) { ShowError(ex); }
     }
     protected override void WndProc(ref Message m)
@@ -470,7 +602,7 @@ internal sealed class MainForm : Form
     }
     protected override void Dispose(bool disposing)
     {
-        if (disposing) { _tray.Visible = false; _tray.Dispose(); _server?.Dispose(); _identity?.Dispose(); }
+        if (disposing) { _cacheTimer.Dispose(); _tray.Visible = false; _tray.Dispose(); _server?.Dispose(); _identity?.Dispose(); _githubApi?.Dispose(); }
         base.Dispose(disposing);
     }
 }

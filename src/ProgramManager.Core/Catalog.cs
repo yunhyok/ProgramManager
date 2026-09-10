@@ -15,6 +15,7 @@ public sealed class CatalogApp
     public string Id { get; set; } = "";
     public string Name { get; set; } = "";
     public string Description { get; set; } = "";
+    public string GitHubRepository { get; set; } = "";
     public List<AppRelease> Releases { get; set; } = [];
     [JsonIgnore]
     public AppRelease? Latest => Releases.OrderByDescending(r => CatalogRules.Version(r.Version)).FirstOrDefault();
@@ -29,11 +30,14 @@ public sealed class AppRelease
     public string Sha256 { get; set; } = "";
     public long Size { get; set; }
     public DateTimeOffset PublishedUtc { get; set; }
+    public long GitHubAssetId { get; set; }
+    public string GitHubTag { get; set; } = "";
 }
 
 public static class CatalogRules
 {
     public const int MaxCatalogBytes = 4 * 1024 * 1024;
+    public const int MaxDocumentationBytes = 4 * 1024 * 1024;
     public const long MaxPackageBytes = 8L * 1024 * 1024 * 1024;
 
     public static string Platform(string value)
@@ -81,6 +85,7 @@ public static class CatalogRules
         {
             if (app is null || !ids.Add(Id(app.Id))) throw new InvalidDataException("중복 또는 빈 프로그램 정보입니다.");
             Text(app.Name, 200, true); Text(app.Description, 10000);
+            if (app.GitHubRepository != "") GitHubApi.RepositoryName(app.GitHubRepository);
             if (app.Releases is null || app.Releases.Count is < 1 or > 500) throw new InvalidDataException("버전 목록이 올바르지 않습니다.");
             var versions = new HashSet<string>(StringComparer.Ordinal);
             foreach (var release in app.Releases)
@@ -88,7 +93,11 @@ public static class CatalogRules
                 if (release is null || !versions.Add(NormalizeVersion(release.Version) + "/" + Platform(release.Platform))) throw new InvalidDataException("중복 또는 빈 버전 정보입니다.");
                 Text(release.Notes, 30000);
                 InstallerName(release.FileName);
-                if (release.Sha256 is null || !Regex.IsMatch(release.Sha256, "\\A[a-fA-F0-9]{64}\\z") || release.Size is <= 0 or > MaxPackageBytes || release.PublishedUtc == default)
+                Text(release.GitHubTag, 200);
+                var github = app.GitHubRepository != "" && release.GitHubAssetId > 0 && release.GitHubTag != "";
+                if ((app.GitHubRepository != "") != github || (app.GitHubRepository == "" && (release.GitHubAssetId != 0 || release.GitHubTag != "")))
+                    throw new InvalidDataException("GitHub 배포 파일 식별 정보가 올바르지 않습니다.");
+                if (release.Sha256 is null || !(Regex.IsMatch(release.Sha256, "\\A[a-fA-F0-9]{64}\\z") || (github && release.Sha256 == "")) || release.Size is <= 0 or > MaxPackageBytes || release.PublishedUtc == default)
                     throw new InvalidDataException("설치 파일의 크기, 해시 또는 게시 날짜가 올바르지 않습니다.");
             }
         }

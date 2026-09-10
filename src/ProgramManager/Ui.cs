@@ -52,12 +52,17 @@ internal static class Ui
         grid.HandleCreated += (_, _) => FitHeaders(grid);
         grid.FontChanged += (_, _) => FitHeaders(grid);
         grid.DpiChangedAfterParent += (_, _) => FitHeaders(grid);
+        grid.Layout += (_, _) => FitHeaders(grid);
         return grid;
     }
 
     private static void FitHeaders(DataGridView grid)
     {
         foreach (DataGridViewColumn column in grid.Columns)
-            column.MinimumWidth = column.GetPreferredWidth(DataGridViewAutoSizeColumnMode.ColumnHeader, true);
+        {
+            // PreferredSize omits the first header's extra border pixels.
+            var width = column.HeaderCell.PreferredSize.Width + 2;
+            if (width > 0 && column.MinimumWidth != width) column.MinimumWidth = width;
+        }
     }
 }

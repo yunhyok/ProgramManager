@@ -13,11 +13,17 @@
     <UiSourceDirectory Condition="'$(UiSourceDirectory)' == ''">../../src/ProgramManager</UiSourceDirectory>
   </PropertyGroup>
   <ItemGroup>
+    <Reference Include="System.Net.Http" Condition="'$(TargetFramework)' == 'net48'" />
     <ProjectReference Include="../../src/ProgramManager.Core/ProgramManager.Core.csproj" />
     <Compile Include="../../src/ProgramManager/AppState.cs" Link="AppState.cs" />
     <Compile Include="$(UiSourceDirectory)/MainForm.cs" Link="MainForm.cs" />
     <Compile Include="$(UiSourceDirectory)/Dialogs.cs" Link="Dialogs.cs" />
     <Compile Include="$(UiSourceDirectory)/Ui.cs" Link="Ui.cs" />
+    <Compile Include="../../src/ProgramManager/GitHubDialogs.cs" Link="GitHubDialogs.cs" />
+    <Compile Include="../../src/ProgramManager/GitHubCredentials.cs" Link="GitHubCredentials.cs" />
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="All" Condition="'$(TargetFramework)' == 'net48'" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="../../docs/guide.html" Link="guide.html" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
