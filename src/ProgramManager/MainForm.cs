@@ -122,7 +122,7 @@ internal sealed class MainForm : Form
         var statusStrip = new StatusStrip();
         _status.Spring = true;
         _status.TextAlign = ContentAlignment.MiddleLeft;
-        statusStrip.Items.AddRange([_status, _progress, _cancel]);
+        statusStrip.Items.AddRange([_progress, _cancel, _status]);
         Controls.Add(shell);
         Controls.Add(statusStrip);
         var menu = new ContextMenuStrip();
@@ -376,15 +376,15 @@ internal sealed class MainForm : Form
             var account = _state.Settings.GitHubOwner;
             if (account.Length == 0) account = await _githubApi!.GetCurrentUserAsync(token);
             var repositories = await _githubApi!.ListRepositoriesAsync(account, token);
-            var selected = GitHubDialogs.Sources(this, account, repositories, _state.Settings.GitHubRepositories);
+            var selected = GitHubDialogs.Sources(this, account, repositories, _state.Settings.GitHubRepositories, _state.Store.CheckGitHubRepositoryAsync);
             if (selected is null) { _status.Text = "저장소 선택을 취소했습니다."; return; }
             var previous = AppState.Clone(_state.Settings);
             var next = AppState.Clone(previous); next.GitHubOwner = account; next.GitHubRepositories = selected;
             _state.CommitSettings(next);
-            try { _published = await _state.Store.RefreshGitHubAsync(selected, token); }
+            GitHubSyncResult synced;
+            try { synced = await _state.Store.RefreshGitHubAsync(selected, token, GitHubProgress()); }
             catch { _state.CommitSettings(previous); throw; }
-            LoadCatalogs(); Render();
-            _status.Text = $"{_published.Apps.Count}개 프로그램 공유 준비 완료 · 설치 파일은 요청할 때 받습니다.";
+            FinishGitHubSync(synced);
         });
     }
 
@@ -396,10 +396,27 @@ internal sealed class MainForm : Form
         await RunAsync("GitHub Release 목록 동기화 중 · 설치 파일은 아직 받지 않습니다…", async token =>
         {
             await ConfigureGitHubAsync(token);
-            _published = await _state.Store.RefreshGitHubAsync(_state.Settings.GitHubRepositories, token);
-            LoadCatalogs(); Render();
-            _status.Text = $"GitHub 목록 {_published.Apps.Count}개 동기화 완료";
+            var synced = await _state.Store.RefreshGitHubAsync(_state.Settings.GitHubRepositories, token, GitHubProgress());
+            FinishGitHubSync(synced);
         });
+    }
+
+    private IProgress<GitHubSyncProgress> GitHubProgress() => new Progress<GitHubSyncProgress>(p =>
+    {
+        if (!_busy) return;
+        _progress.Style = ProgressBarStyle.Continuous;
+        _progress.Value = p.Total == 0 ? 100 : Math.Max(0, Math.Min(100, p.Completed * 100 / p.Total));
+        _status.Text = $"GitHub 동기화 {p.Completed}/{p.Total}개 처리" + (p.Repository.Length > 0 ? " · " + p.Repository + " 확인 완료" : "");
+    });
+
+    private void FinishGitHubSync(GitHubSyncResult result)
+    {
+        _published = result.Catalog;
+        LoadCatalogs(); Render();
+        _progress.Style = ProgressBarStyle.Continuous; _progress.Value = 100;
+        var failed = result.Checks.Count(c => c.App is null);
+        _status.Text = $"GitHub 동기화 완료 · 성공 {result.Checks.Count - failed}개 · 확인 필요 {failed}개 · 설치 파일은 요청할 때 받습니다.";
+        if (failed > 0) GitHubDialogs.ShowSyncResult(this, _status.Text, result);
     }
 
     private async Task OpenDocumentationAsync(bool host)
@@ -507,7 +524,7 @@ internal sealed class MainForm : Form
             var app = fresh.Apps.Single(a => a.Id == selected.Id);
             var verifiedRelease = app.Releases.Single(r => r.Platform == release.Platform && Platforms.Numeric(r.Version) == Platforms.Numeric(release.Version));
             if (!SameInstaller(selected, release, app, verifiedRelease)) throw new InvalidDataException("배포 파일 정보가 변경되었습니다. 목록을 새로고침한 후 다시 확인하세요.");
-            var package = await client.DownloadAsync(app, verifiedRelease, _state.Downloads, new Progress<int>(p => _progress.Value = Math.Max(0, Math.Min(100, p))), token);
+            var package = await client.DownloadAsync(app, verifiedRelease, _state.Downloads, new Progress<int>(p => { _progress.Style = ProgressBarStyle.Continuous; _progress.Value = Math.Max(0, Math.Min(100, p)); }), token);
             token.ThrowIfCancellationRequested();
             _cancel.Visible = false;
             _status.Text = "설치 프로그램 진행 중 · 설치 창에서 완료해 주세요.";
@@ -588,6 +605,7 @@ internal sealed class MainForm : Form
         _search.Enabled = false;
         _operation = new CancellationTokenSource();
         _progress.Value = 0;
+        _progress.Style = ProgressBarStyle.Marquee;
         _progress.Visible = _cancel.Visible = true;
         _status.Text = message;
         try { await work(_operation.Token); if (_status.Text == message) _status.Text = "준비 완료"; }

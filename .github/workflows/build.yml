@@ -21,7 +21,7 @@ jobs:
         run: ./tools/build.ps1
       - uses: actions/upload-artifact@v4
         with:
-          name: ProgramManager-0.2.1-installers
+          name: ProgramManager-0.2.2-installers
           path: artifacts/installers/*
           if-no-files-found: error
           retention-days: 14

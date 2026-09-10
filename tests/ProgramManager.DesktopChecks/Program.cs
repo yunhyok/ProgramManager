@@ -36,7 +36,7 @@ internal static class DesktopCheckRunner
             }
             Checks(root);
             CheckRecentPrograms(root);
-            Console.WriteLine("PASS: copied Windows shortcut preserves target/arguments/working directory; deletion-safe launcher; stable dedup; settings/program rollback; corrupt/null JSON rejection; platform numeric ordering; recent five history and tray dispatch");
+            Console.WriteLine("PASS: copied Windows shortcut preserves target/arguments/working directory; deletion-safe launcher; stable dedup; settings/program rollback; corrupt/null JSON rejection; platform numeric ordering; recent five history and tray dispatch; repository preflight/progress/patterns/retry/cancellation");
             return 0;
         }
         catch (Exception ex) { Console.Error.WriteLine(ex); return 1; }
@@ -89,13 +89,40 @@ internal static class DesktopCheckRunner
             bitmap.Save(path, System.Drawing.Imaging.ImageFormat.Png);
             Console.WriteLine(path);
         }
-        foreach (var dialogName in new[] { "register", "github-settings", "repositories", "settings", "pairing", "history", "help" })
+        foreach (var dialogName in new[] { "register", "github-settings", "repositories", "sync-result", "settings", "pairing", "history", "help" })
         {
+            var repositoryPrepared = false;
+            var pendingCaptured = false;
             EventHandler? capture = null;
             capture = (_, _) =>
             {
                 var dialog = Application.OpenForms.Cast<Form>().LastOrDefault(f => f != form && f.Modal);
                 if (dialog is null) return;
+                if (dialogName == "repositories")
+                {
+                    if (!repositoryPrepared) { repositoryPrepared = true; layout?.Prepare(dialog); }
+                    var repositoryProgress = dialog.Controls.Find("RepositoryProgress", true).OfType<ProgressBar>().Single();
+                    if (!((Button)dialog.AcceptButton!).Enabled)
+                    {
+                        if (!pendingCaptured)
+                        {
+                            pendingCaptured = true;
+                            Assert(repositoryProgress.Visible, "repository progress is visible while checks run");
+                            layout?.Observations.Add($"Repository preflight pending progress={repositoryProgress.Value}/{repositoryProgress.Maximum}");
+                            using var pending = new Bitmap(dialog.Width, dialog.Height);
+                            dialog.DrawToBitmap(pending, new Rectangle(Point.Empty, dialog.Size));
+                            pending.Save(Path.GetFullPath(Path.Combine(outputDirectory, "program-manager-repositories-checking.png")), System.Drawing.Imaging.ImageFormat.Png);
+                        }
+                        return;
+                    }
+                    Assert(repositoryProgress.Value == repositoryProgress.Maximum, "rendered completed preflight has full native progress value");
+                    layout?.Observations.Add($"Repository preflight complete progress={repositoryProgress.Value}/{repositoryProgress.Maximum}");
+                    var grid = Descendants(dialog).OfType<DataGridView>().Single();
+                    var error = grid.Rows.Cast<DataGridViewRow>().First(row => row.Tag is GitHubRepositoryCheck result && result.Error.Contains("토큰"));
+                    grid.CurrentCell = error.Cells[1];
+                    error.Selected = true;
+                    Assert(dialog.Controls.Find("RepositoryDetails", true).OfType<TextBox>().Single().Text.Contains("토큰"), "repository error details are available in rendered fixture");
+                }
                 if (dialogName == "help")
                 {
                     var browser = dialog.Controls.OfType<WebBrowser>().Single();
@@ -105,7 +132,7 @@ internal static class DesktopCheckRunner
                     Assert(browser.Url?.IsFile == true, "offline viewer blocks external navigation");
                 }
                 Application.Idle -= capture;
-                layout?.Prepare(dialog);
+                if (!repositoryPrepared) layout?.Prepare(dialog);
                 layout?.Inspect(dialog, dialogName);
                 using var bitmap = new Bitmap(dialog.Width, dialog.Height);
                 dialog.DrawToBitmap(bitmap, new Rectangle(Point.Empty, dialog.Size));
@@ -119,7 +146,8 @@ internal static class DesktopCheckRunner
             {
                 if (dialogName == "register") Dialogs.EditLocal(form, state.Settings.Programs[0]);
                 else if (dialogName == "github-settings") GitHubDialogs.Settings(form, state.Settings);
-                else if (dialogName == "repositories") GitHubDialogs.Sources(form, "sample-account", new List<GitHubRepository> { new() { FullName = "sample-account/IntraDrop", Description = "내부망 파일 전송", Private = false }, new() { FullName = "sample-account/spd-decap-pi-evaluator", Description = "SPD 파일 분석 및 전원 무결성 평가", Private = true } }, new List<GitHubSelection> { new() { Repository = "sample-account/IntraDrop" } });
+                else if (dialogName == "repositories") GitHubDialogs.Sources(form, "sample-account", [new GitHubRepository { FullName = "sample-account/IntraDrop", Description = "내부망 파일 전송", Private = false }, new GitHubRepository { FullName = "sample-account/spd-decap-pi-evaluator", Description = "SPD 파일 분석 · 설치 파일 후보 여러 개", Private = true }, new GitHubRepository { FullName = "sample-account/private-tool", Description = "접근 권한 확인이 필요한 저장소", Private = true }, new GitHubRepository { FullName = "sample-account/no-release", Description = "아직 정식 배포본이 없는 저장소" }], [new GitHubSelection { Repository = "sample-account/IntraDrop" }], CheckRepositoryFixtureAsync);
+                else if (dialogName == "sync-result") GitHubDialogs.ShowSyncResult(form, "저장소 2개 중 1개 동기화 완료 · 1개는 이전 배포본 유지", new GitHubSyncResult { Checks = [RepositoryFixture(new GitHubRepository { FullName = "sample-account/IntraDrop" }, new GitHubSelection { Repository = "sample-account/IntraDrop" }), RepositoryFixture(new GitHubRepository { FullName = "sample-account/private-tool" }, new GitHubSelection { Repository = "sample-account/private-tool" })] });
                 else if (dialogName == "settings") Dialogs.Settings(form, state);
                 else if (dialogName == "pairing") Dialogs.ShowPairing(form, "Test-only connection code. No real host credentials.", "192.0.2.10:45672");
                 else if (dialogName == "help") typeof(MainForm).GetMethod("ShowHelp", flags)!.Invoke(form, null);
@@ -222,25 +250,169 @@ internal static class DesktopCheckRunner
 
     private static void CheckGitHubSelection()
     {
-        using var owner = new Form();
-        EventHandler? save = null;
-        save = (_, _) =>
+        var allowed = new TaskCompletionSource<bool>();
+        var remainingAllowed = new TaskCompletionSource<bool>();
+        var started = 0;
+        var intermediateProgress = false;
+        var readyAfterRetry = false;
+        var stage = 0;
+        var selected = RunRepositoryDialog(
+            [new GitHubRepository { FullName = "sample-account/public-tool" }, new GitHubRepository { FullName = "sample-account/no-release" }, new GitHubRepository { FullName = "sample-account/spd-decap-pi-evaluator" }],
+            [new GitHubSelection { Repository = "sample-account/private-tool", LegacyAssetPattern = "*win7*.exe" }],
+            async (repository, selection, token) =>
+            {
+                await allowed.Task;
+                if (++started > 1) await remainingAllowed.Task;
+                await Task.Delay(30, token);
+                return RepositoryFixture(repository, selection, readyAfterRetry && repository.FullName.EndsWith("/no-release", StringComparison.Ordinal));
+            }, dialog =>
+            {
+                var grid = Descendants(dialog).OfType<DataGridView>().Single();
+                var save = (Button)dialog.AcceptButton!;
+                var progress = dialog.Controls.Find("RepositoryProgress", true).OfType<ProgressBar>().Single();
+                var progressText = dialog.Controls.Find("RepositoryProgressText", true).OfType<Label>().Single();
+                var details = dialog.Controls.Find("RepositoryDetails", true).OfType<TextBox>().Single();
+                DataGridViewRow Row(string suffix) => grid.Rows.Cast<DataGridViewRow>().Single(row => ((string)row.Cells[1].Value).EndsWith("/" + suffix, StringComparison.Ordinal));
+                var prior = Row("private-tool");
+                var ready = Row("public-tool");
+                var absent = Row("no-release");
+                var ambiguous = Row("spd-decap-pi-evaluator");
+                if (stage == 0)
+                {
+                    Assert(!save.Enabled && progress.Visible && progressText.Text.Length > 0, "repository checks display progress and disable save while pending");
+                    Assert(ready.Tag is null && ready.Cells[0].ReadOnly && !Convert.ToBoolean(ready.Cells[0].Value) && ready.Cells[2].ReadOnly, "new pending repository cannot be selected or edited");
+                    Assert(Convert.ToBoolean(prior.Cells[0].Value), "existing selection is retained while check is pending");
+                    stage = 1; allowed.SetResult(true);
+                    return;
+                }
+                if (!save.Enabled)
+                {
+                    if (progress.Value > 0 && progress.Value < progress.Maximum)
+                    {
+                        intermediateProgress = true;
+                        remainingAllowed.TrySetResult(true);
+                    }
+                    return;
+                }
+                Assert(intermediateProgress && progress.Value == progress.Maximum && progress.Maximum == grid.Rows.Count, "repository progress advances between rows and reaches its maximum on completion");
+                Assert(grid.Rows.Cast<DataGridViewRow>().All(row => row.Tag is GitHubRepositoryCheck && Convert.ToString(row.Cells[5].Value)!.Length > 0), "finished checks populate per-repository results and status");
+                if (stage == 1)
+                {
+                    Assert(((GitHubRepositoryCheck)ready.Tag!).App != null && !ready.Cells[0].ReadOnly, "ready repository can be selected");
+                    Assert(((GitHubRepositoryCheck)absent.Tag!).App is null && absent.Cells[0].ReadOnly && !Convert.ToBoolean(absent.Cells[0].Value), "new repository without a release remains unavailable and unchecked");
+                    grid.CurrentCell = absent.Cells[0];
+                    Assert(!grid.BeginEdit(false), "readonly failed repository cannot enter checkbox edit mode");
+                    Assert(Convert.ToBoolean(prior.Cells[0].Value) && !prior.Cells[0].ReadOnly && prior.Cells[2].ReadOnly, "failed prior selection remains checked and removable with unavailable patterns locked");
+                    grid.CurrentCell = prior.Cells[1]; prior.Selected = true;
+                    Assert(details.ReadOnly && details.WordWrap && details.Text.Contains("토큰"), "long failure reason appears in readonly wrapping details; readOnly=" + details.ReadOnly + "; wrap=" + details.WordWrap + "; selected=" + grid.CurrentRow?.Cells[1].Value + "; details=" + details.Text);
+                    Assert(((GitHubRepositoryCheck)ambiguous.Tag!).App is null && !ambiguous.Cells[2].ReadOnly, "cached release assets allow correcting ambiguous file pattern");
+                    ambiguous.Cells[2].Value = "Program-Setup.exe";
+                    grid.EndEdit();
+                    Assert(((GitHubRepositoryCheck)ambiguous.Tag!).App != null && !ambiguous.Cells[0].ReadOnly, "corrected pattern reevaluates cached releases and enables selection");
+                    ready.Cells[0].Value = true; ambiguous.Cells[0].Value = true;
+                    readyAfterRetry = true;
+                    grid.CurrentCell = absent.Cells[1]; absent.Selected = true;
+                    stage = 2;
+                    Descendants(dialog).OfType<Button>().Single(button => button.Text == "다시 검사").PerformClick();
+                    Assert(!save.Enabled && progress.Visible, "retry displays progress and disables save during renewed checks");
+                    return;
+                }
+                Assert(((GitHubRepositoryCheck)absent.Tag!).App != null && !absent.Cells[0].ReadOnly, "retry enables newly available repository");
+                save.PerformClick();
+            });
+        Assert(selected?.Count == 3 && selected.Single(selection => selection.Repository == "sample-account/private-tool").LegacyAssetPattern == "*win7*.exe" && selected.Single(selection => selection.Repository.EndsWith("/spd-decap-pi-evaluator", StringComparison.Ordinal)).ModernAssetPattern == "Program-Setup.exe", "save preserves prior failed source and corrected selected pattern");
+
+        var removed = RunRepositoryDialog([], [new GitHubSelection { Repository = "sample-account/private-tool" }], CheckRepositoryFixtureAsync, dialog =>
         {
-            var dialog = Application.OpenForms.Cast<Form>().LastOrDefault(f => f.Modal);
-            if (dialog is null) return;
-            Application.Idle -= save;
-            var layout = (TableLayoutPanel)dialog.Controls[0];
-            var grid = layout.Controls.OfType<DataGridView>().Single();
-            Assert(grid.Rows.Count == 2 && Convert.ToBoolean(grid.Rows.Cast<DataGridViewRow>().Single(r => (string)r.Cells[1].Value == "sample-account/private-tool").Cells[0].Value), "inaccessible prior repository remains checked");
+            if (!((Button)dialog.AcceptButton!).Enabled) return;
+            var row = Descendants(dialog).OfType<DataGridView>().Single().Rows[0];
+            Assert(Convert.ToBoolean(row.Cells[0].Value) && !row.Cells[0].ReadOnly, "existing failed selection may be unchecked");
+            row.Cells[0].Value = false;
+            Assert(row.Cells[0].ReadOnly && !Convert.ToBoolean(row.Cells[0].Value), "unchecked failed source cannot be newly reselected");
             ((Button)dialog.AcceptButton!).PerformClick();
+        });
+        Assert(removed?.Count == 0, "explicit uncheck removes failed prior source");
+
+        CancellationToken observed = default;
+        var cancelled = new TaskCompletionSource<bool>();
+        var cancelledResult = RunRepositoryDialog([new GitHubRepository { FullName = "sample-account/public-tool" }], [], async (repository, selection, token) =>
+        {
+            observed = token;
+            try { await Task.Delay(Timeout.Infinite, token); return RepositoryFixture(repository, selection); }
+            finally { cancelled.TrySetResult(true); }
+        }, dialog =>
+        {
+            if (!observed.CanBeCanceled) return;
+            Assert(!((Button)dialog.AcceptButton!).Enabled, "save stays disabled when cancelled preflight is incomplete");
+            ((Button)dialog.CancelButton!).PerformClick();
+        });
+        Assert(cancelledResult is null && observed.IsCancellationRequested, "cancel closes dialog and cancels active repository request");
+        var deadline = DateTime.UtcNow.AddSeconds(2);
+        while (!cancelled.Task.IsCompleted && DateTime.UtcNow < deadline) { Application.DoEvents(); Thread.Sleep(1); }
+        Assert(cancelled.Task.IsCompleted, "cancelled checker completes without waiting on a closed dialog");
+        Application.DoEvents();
+    }
+
+    private static List<GitHubSelection>? RunRepositoryDialog(List<GitHubRepository> repositories, List<GitHubSelection> current, Func<GitHubRepository, GitHubSelection, CancellationToken, Task<GitHubRepositoryCheck>> check, Action<Form> inspect)
+    {
+        using var owner = new Form();
+        using var timeout = new System.Windows.Forms.Timer { Interval = 15000 };
+        Exception? failure = null;
+        var inspecting = false;
+        EventHandler idle = (_, _) =>
+        {
+            if (inspecting) return;
+            var dialog = Application.OpenForms.Cast<Form>().LastOrDefault(form => form.Modal);
+            if (dialog is null) return;
+            inspecting = true;
+            try { inspect(dialog); }
+            catch (Exception ex) { failure = ex; dialog.DialogResult = DialogResult.Cancel; }
+            finally { inspecting = false; }
         };
-        Application.Idle += save;
+        timeout.Tick += (_, _) =>
+        {
+            failure = new TimeoutException("Repository dialog check did not finish.");
+            var dialog = Application.OpenForms.Cast<Form>().LastOrDefault(form => form.Modal);
+            if (dialog != null) dialog.DialogResult = DialogResult.Cancel;
+        };
+        Application.Idle += idle;
+        timeout.Start();
         try
         {
-            var selected = GitHubDialogs.Sources(owner, "sample-account", [new GitHubRepository { FullName = "sample-account/public-tool" }], [new GitHubSelection { Repository = "sample-account/private-tool", LegacyAssetPattern = "*win7*.exe" }]);
-            Assert(selected?.Count == 1 && selected[0].Repository == "sample-account/private-tool" && selected[0].LegacyAssetPattern == "*win7*.exe", "selection save preserves invisible repository and platform pattern");
+            var result = GitHubDialogs.Sources(owner, "sample-account", repositories, current, check);
+            if (failure != null) throw failure;
+            return result;
         }
-        finally { Application.Idle -= save; }
+        finally { timeout.Stop(); Application.Idle -= idle; }
+    }
+
+    private static async Task<GitHubRepositoryCheck> CheckRepositoryFixtureAsync(GitHubRepository repository, GitHubSelection selection, CancellationToken token)
+    {
+        await Task.Delay(120, token);
+        return RepositoryFixture(repository, selection);
+    }
+
+    private static GitHubRepositoryCheck RepositoryFixture(GitHubRepository repository, GitHubSelection selection, bool forceReady = false)
+    {
+        if (repository.FullName.EndsWith("/private-tool", StringComparison.Ordinal))
+            return new GitHubRepositoryCheck { Repository = repository, Error = "GitHub에서 비공개 저장소를 읽을 수 없습니다. 호스트의 GitHub 설정에서 토큰에 이 저장소의 Contents 읽기 권한이 있는지 확인하세요. 조직 저장소라면 조직 승인 상태도 확인한 뒤 ‘다시 검사’를 누르세요. 이전에 선택한 저장소는 직접 체크를 해제하기 전까지 보존합니다." };
+        var releases = new List<GitHubRelease>();
+        if (forceReady || !repository.FullName.EndsWith("/no-release", StringComparison.Ordinal))
+        {
+            var release = new GitHubRelease { Tag = "v1.2.0", Version = "1.2", PublishedUtc = DateTimeOffset.Parse("2026-09-10T00:00:00Z"), Notes = "사용자 편의 기능과 안정성을 개선했습니다.", Assets = [new GitHubAsset { Id = 101, Name = "Program-Setup.exe", Size = 64000000 }, new GitHubAsset { Id = 102, Name = "Program-Setup-win7.exe", Size = 41000000 }] };
+            if (repository.FullName.EndsWith("/spd-decap-pi-evaluator", StringComparison.Ordinal)) release.Assets.Add(new GitHubAsset { Id = 103, Name = "Program-Setup-Portable.exe", Size = 42000000 });
+            releases.Add(release);
+        }
+        return CatalogStore.EvaluateGitHubRepository(repository, releases, selection);
+    }
+
+    private static IEnumerable<Control> Descendants(Control parent)
+    {
+        foreach (Control child in parent.Controls)
+        {
+            yield return child;
+            foreach (var nested in Descendants(child)) yield return nested;
+        }
     }
 
     private static void CheckRecentPrograms(string root)

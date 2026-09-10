@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Net;
+using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -15,6 +16,27 @@ public sealed class PreparedPackage : IDisposable
     public void Dispose() { try { Content.Dispose(); } finally { Interlocked.Exchange(ref releaseLease, null)?.Invoke(); } }
 }
 
+public sealed class GitHubRepositoryCheck
+{
+    public GitHubRepository Repository { get; set; } = new();
+    public List<GitHubRelease>? Releases { get; set; }
+    public CatalogApp? App { get; set; }
+    public string Error { get; set; } = "";
+}
+
+public sealed class GitHubSyncResult
+{
+    public Catalog Catalog { get; set; } = new();
+    public List<GitHubRepositoryCheck> Checks { get; set; } = [];
+}
+
+public sealed class GitHubSyncProgress
+{
+    public int Completed { get; set; }
+    public int Total { get; set; }
+    public string Repository { get; set; } = "";
+}
+
 public sealed partial class CatalogStore
 {
     public GitHubApi? GitHub { get; set; }
@@ -24,17 +46,77 @@ public sealed partial class CatalogStore
     private readonly HashSet<string> downloads = new(StringComparer.OrdinalIgnoreCase);
     private string CacheRoot => Path.Combine(root, "temp");
 
-    public async Task<Catalog> RefreshGitHubAsync(IEnumerable<GitHubSelection> selections, CancellationToken token = default)
+    public async Task<GitHubSyncResult> RefreshGitHubAsync(IEnumerable<GitHubSelection> selections, CancellationToken token = default, IProgress<GitHubSyncProgress>? progress = null)
     {
-        var github = GitHub ?? throw new InvalidOperationException("호스트의 GitHub 연결을 먼저 설정하세요.");
         var selected = selections.ToList();
-        if (selected.Count > 200 || selected.Any(s => s is null) || selected.Select(s => s.Validate().Repository).Distinct(StringComparer.OrdinalIgnoreCase).Count() != selected.Count)
+        if (selected.Count > 200 || selected.Any(s => s is null) || selected.Select(s => GitHubApi.RepositoryName(s.Repository)).Distinct(StringComparer.OrdinalIgnoreCase).Count() != selected.Count)
             throw new InvalidDataException("배포 저장소는 중복 없이 최대 200개까지 선택할 수 있습니다.");
-        var apps = new List<CatalogApp>();
+        var github = GitHub;
+        if (selected.Count != 0 && github is null) throw new InvalidOperationException("호스트의 GitHub 연결을 먼저 설정하세요.");
+        var checks = new List<GitHubRepositoryCheck>();
+        token.ThrowIfCancellationRequested();
+        progress?.Report(new GitHubSyncProgress { Total = selected.Count });
         foreach (var selection in selected)
         {
-            var info = await github.GetRepositoryAsync(selection.Repository, token).ConfigureAwait(false);
+            token.ThrowIfCancellationRequested();
+            var info = new GitHubRepository { FullName = selection.Repository };
+            GitHubRepositoryCheck check;
+            try
+            {
+                info = await github!.GetRepositoryAsync(selection.Repository, token).ConfigureAwait(false);
+                check = await CheckGitHubRepositoryAsync(info, selection, token).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ExpectedRepositoryFailure(ex, token)) { check = FailedRepository(info, ex); }
+            checks.Add(check);
+            progress?.Report(new GitHubSyncProgress { Completed = checks.Count, Total = selected.Count, Repository = selection.Repository });
+        }
+        token.ThrowIfCancellationRequested();
+        using var writerLock = new FileStream(Path.Combine(root, ".publish.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+        var catalog = Read();
+        var selectedNames = new HashSet<string>(selected.Select(s => s.Repository), StringComparer.OrdinalIgnoreCase);
+        catalog.Apps.RemoveAll(a => a.GitHubRepository != "" && !selectedNames.Contains(a.GitHubRepository));
+        for (var i = 0; i < checks.Count; i++)
+        {
+            var app = checks[i].App;
+            if (app is null) continue;
+            var previous = catalog.Apps.SingleOrDefault(a => a.GitHubRepository.Equals(selected[i].Repository, StringComparison.OrdinalIgnoreCase));
+            var conflict = catalog.Apps.Any(a => a != previous && (a.Id == app.Id || a.GitHubRepository.Equals(app.GitHubRepository, StringComparison.OrdinalIgnoreCase)));
+            if (conflict || (previous is null && catalog.Apps.Count >= 200))
+            {
+                checks[i].App = null;
+                checks[i].Error = conflict ? checks[i].Repository.FullName + ": 같은 저장소 또는 프로그램 ID가 이미 카탈로그에 있습니다. 중복 선택을 해제하세요." : checks[i].Repository.FullName + ": 카탈로그는 기존 직접 게시 프로그램을 포함해 최대 200개입니다. 다른 배포 선택을 해제하세요.";
+                continue;
+            }
+            if (previous is null) catalog.Apps.Add(app);
+            else catalog.Apps[catalog.Apps.IndexOf(previous)] = app;
+        }
+        CatalogRules.Validate(catalog);
+        token.ThrowIfCancellationRequested();
+        JsonFiles.Write(CatalogPath, catalog);
+        return new GitHubSyncResult { Catalog = catalog, Checks = checks };
+    }
+
+    public async Task<GitHubRepositoryCheck> CheckGitHubRepositoryAsync(GitHubRepository info, GitHubSelection selection, CancellationToken token = default)
+    {
+        var github = GitHub ?? throw new InvalidOperationException("호스트의 GitHub 연결을 먼저 설정하세요.");
+        token.ThrowIfCancellationRequested();
+        try
+        {
             var releases = await github.GetReleasesAsync(selection.Repository, token).ConfigureAwait(false);
+            token.ThrowIfCancellationRequested();
+            return EvaluateGitHubRepository(info, releases, selection);
+        }
+        catch (Exception ex) when (ExpectedRepositoryFailure(ex, token)) { return FailedRepository(info, ex); }
+    }
+
+    public static GitHubRepositoryCheck EvaluateGitHubRepository(GitHubRepository info, List<GitHubRelease> releases, GitHubSelection selection)
+    {
+        var check = new GitHubRepositoryCheck { Repository = info, Releases = releases };
+        try
+        {
+            selection.Validate();
+            GitHubApi.RepositoryName(info.FullName);
+            if (releases is null || releases.Count > 100) throw new InvalidDataException("GitHub 릴리스 목록이 없거나 허용 개수를 넘습니다.");
             var repoName = info.FullName.Split('/')[1];
             var slug = Regex.Replace(repoName.ToLowerInvariant(), "[^a-z0-9-]", "-");
             var app = new CatalogApp { Id = "gh-" + slug.Substring(0, Math.Min(slug.Length, 48)) + "-" + Key(info.FullName.ToLowerInvariant()).Substring(0, 8), Name = repoName, Description = info.Description, GitHubRepository = info.FullName };
@@ -52,17 +134,15 @@ public sealed partial class CatalogStore
             if (app.Releases.Count == 0) throw new InvalidDataException(info.FullName + ": 배포할 설치 파일이 없습니다. 정식 숫자 버전(v1.2.3)의 GitHub Release에 Setup/Install EXE 또는 MSI를 올리거나 파일 패턴을 지정하세요. ZIP은 지원하지 않습니다.");
             if (selection.ModernAssetPattern != "" && app.Releases.All(r => r.Platform != "win10-x64")) throw new InvalidDataException(info.FullName + ": Windows 10/11 파일 패턴과 일치하는 EXE/MSI가 없습니다.");
             if (selection.LegacyAssetPattern != "" && app.Releases.All(r => r.Platform != "win7")) throw new InvalidDataException(info.FullName + ": Windows 7 파일 패턴과 일치하는 EXE/MSI가 없습니다.");
-            apps.Add(app);
+            CatalogRules.Validate(new Catalog { Apps = [app] });
+            check.App = app;
         }
-        token.ThrowIfCancellationRequested();
-        using var writerLock = new FileStream(Path.Combine(root, ".publish.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
-        var catalog = Read();
-        catalog.Apps.RemoveAll(a => a.GitHubRepository != "");
-        catalog.Apps.AddRange(apps);
-        CatalogRules.Validate(catalog);
-        JsonFiles.Write(CatalogPath, catalog);
-        return catalog;
+        catch (Exception ex) when (ex is InvalidDataException or RegexMatchTimeoutException or FormatException) { check.Error = ex.Message; }
+        return check;
     }
+
+    private static bool ExpectedRepositoryFailure(Exception ex, CancellationToken token) => !token.IsCancellationRequested && ex is HttpRequestException or IOException or InvalidDataException or JsonException or FormatException or RegexMatchTimeoutException or OperationCanceledException;
+    private static GitHubRepositoryCheck FailedRepository(GitHubRepository info, Exception ex) => new() { Repository = info, Error = ex is OperationCanceledException ? info.FullName + ": GitHub 응답 시간이 초과되었습니다. 다시 확인하세요." : ex.Message };
 
     private static GitHubAsset? SelectAsset(GitHubRelease release, string platform, string pattern, string repository)
     {

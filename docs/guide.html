@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Program Manager 0.2.1 사용 안내</title>
+  <title>Program Manager 0.2.2 사용 안내</title>
   <style>
     body { margin: 0; background: #f3f6f9; color: #243042; font: 16px/1.75 "Segoe UI", "Malgun Gothic", sans-serif; }
     main { display: block; box-sizing: border-box; max-width: 940px; margin: 28px auto; padding: 36px; background: #fff; border: 1px solid #dbe2e8; border-radius: 12px; }
@@ -30,7 +30,7 @@
 <body>
 <main>
   <span class="badge">설치에 포함된 오프라인 도움말</span>
-  <h1>Program Manager 0.2.1 사용 안내</h1>
+  <h1>Program Manager 0.2.2 사용 안내</h1>
   <p class="lead">이 PC의 프로그램은 한 목록에서 실행하고, 다른 PC에는 GitHub의 배포 버전을 전달합니다.</p>
   <p><strong>이미 등록한 프로그램은 그대로 사용하면 됩니다.</strong> 새 배포는 호스트에서 GitHub 저장소를 선택하는 방식입니다. 클라이언트 PC에는 GitHub 계정이나 인터넷 연결이 필요하지 않습니다.</p>
   <p>도움말과 오프라인 설명은 Program Manager 안에서 열립니다. 별도의 브라우저가 필요하지 않으며, 문서 안의 목차로 이동할 수 있습니다.</p>
@@ -72,13 +72,25 @@
   <p class="muted">인터넷이 연결된 개발 PC에서 진행합니다. 같은 Program Manager 앱을 사용합니다.</p>
   <ol class="steps">
     <li><strong>호스트 켜기</strong><br><strong>호스트 관리 → 호스트 켜기</strong>를 누릅니다. <strong>설정</strong>에서 역할과 다른 PC가 접근할 <strong>이 PC의 배포 주소</strong>·포트를 확인하거나 변경할 수 있습니다. 기본 TCP 포트는 <code>45672</code>입니다.</li>
-    <li><strong>GitHub 연결 후 저장소 동기화</strong><br><strong>GitHub 설정</strong>에서 이 PC의 GitHub CLI 로그인 또는 직접 입력한 토큰을 사용합니다. <strong>저장소 선택</strong>에서 배포할 저장소를 고르고 <strong>선택한 저장소 동기화</strong>를 누르면 메타데이터를 바로 가져옵니다. 이후 새 버전은 <strong>GitHub 동기화</strong>로 확인합니다.</li>
+    <li><strong>GitHub 연결 후 저장소 검사·동기화</strong><br><strong>GitHub 설정</strong>에서 이 PC의 GitHub CLI 로그인 또는 직접 입력한 토큰을 사용합니다. <strong>저장소 선택</strong>을 열면 배포 가능 여부를 검사합니다. 상태와 사유를 확인해 저장소를 고른 뒤 <strong>선택한 저장소 동기화</strong>를 누릅니다. 이후 새 버전은 <strong>GitHub 동기화</strong>로 확인합니다.</li>
     <li><strong>클라이언트에 연결 코드 전달</strong><br><strong>연결 코드</strong>를 사용할 PC에 전달합니다. 이제 클라이언트가 요청한 설치 파일과 설명을 호스트가 받아 전달합니다. 호스트 PC에서도 배포 카탈로그를 이용할 수 있습니다.</li>
   </ol>
   <p class="note"><strong>완료 확인:</strong> 호스트 목록에 선택한 저장소와 배포 가능한 버전이 표시되고, 클라이언트가 목록을 새로 고쳤을 때 같은 프로그램이 보이면 준비되었습니다. 이 단계에서 모든 설치 파일을 다운로드하지 않습니다.</p>
   <p>비공개 저장소는 해당 저장소를 읽을 수 있는 계정·토큰으로 연결해야 합니다. GitHub 인증 정보는 호스트에서만 사용합니다. 클라이언트에 토큰을 복사할 필요가 없습니다.</p>
   <p><strong>로그인 방식 선택:</strong> 이미 GitHub CLI로 로그인한 PC는 <strong>기존 GitHub CLI 로그인 사용</strong>을 선택합니다. 토큰은 선택한 저장소의 Contents 읽기 권한이 필요합니다. <strong>공개 저장소만 (로그인 없음)</strong>을 선택할 때는 GitHub 계정 또는 조직 이름을 입력하세요.</p>
   <p>호스트가 파일을 제공하려면 사용자가 로그인해 있고 Program Manager가 실행 중이어야 합니다. 트레이에 두어도 됩니다. 종료·로그아웃·절전 중에는 새 요청에 응답하지 못합니다.</p>
+
+  <h3>저장소의 검사 결과를 보고 선택하기</h3>
+  <p>저장소 검사는 Release와 설치 파일의 <strong>메타데이터만</strong> 확인합니다. 설치 파일 자체를 내려받지 않습니다. 검사·동기화 중 화면 하단에서 저장소 이름과 처리 수/전체 수를 확인할 수 있습니다.</p>
+  <div class="table"><table>
+    <thead><tr><th scope="col">저장소 상태</th><th scope="col">다음 행동</th></tr></thead>
+    <tbody>
+      <tr><td>새 저장소를 배포할 수 있음</td><td>체크한 뒤 <strong>선택한 저장소 동기화</strong>를 누릅니다.</td></tr>
+      <tr><td>새 저장소를 배포할 수 없음</td><td>체크가 비활성화됩니다. 표시된 사유를 확인하고, 설치 파일 후보가 모호하면 Windows별 파일 이름 패턴을 수정한 뒤 <strong>다시 검사</strong>합니다.</td></tr>
+      <tr><td>기존에 선택한 저장소의 검사 실패</td><td>기존 체크를 유지합니다. 배포를 유지할 항목은 그대로 두고, 배포 대상에서 빼려면 체크를 해제합니다.</td></tr>
+    </tbody>
+  </table></div>
+  <p>일부 저장소가 실패해도 정상 저장소는 동기화하고 실패 사유를 요약해 보여줍니다. 실패한 저장소에 이전 게시 항목이 있으면 그대로 유지합니다. 동기화를 취소하면 현재 게시 목록을 유지합니다.</p>
 
   <h2 id="client">클라이언트 시작 · 3단계</h2>
   <p class="muted">프로그램을 사용할 PC에서 진행합니다. 호스트와 내부망으로 연결되어야 하며, GitHub 배포에는 클라이언트도 Program Manager 0.2.0 이상이 필요합니다.</p>
@@ -101,7 +113,7 @@
     </tbody>
   </table></div>
   <p>같은 프로그램이라도 Windows별 설치 파일과 제공되는 최신 버전이 다를 수 있습니다. Windows 7용은 Windows 7용 릴리스에서 선택하며, 맞는 파일이 없으면 다른 OS용으로 대체하지 않습니다.</p>
-  <p>파일 후보가 여러 개이면 호스트의 <strong>저장소 선택</strong>에서 Windows별 파일 이름 패턴을 지정해 선택을 명확하게 합니다. 이름을 바꾸는 것만으로 OS 호환성이 바뀌지는 않습니다. ZIP 포터블 앱, 소스 ZIP/TAR와 Actions 아티팩트는 이번 버전의 설치 대상이 아닙니다.</p>
+  <p>파일 후보가 여러 개이면 호스트의 <strong>저장소 선택</strong>에서 Windows별 파일 이름 패턴을 수정하고 <strong>다시 검사</strong>합니다. 이름을 바꾸는 것만으로 OS 호환성이 바뀌지는 않습니다. ZIP 포터블 앱, 소스 ZIP/TAR와 Actions 아티팩트는 이번 버전의 설치 대상이 아닙니다.</p>
   <p>패턴의 <code>*</code>는 여러 글자, <code>?</code>는 한 글자를 뜻합니다. 예를 들어 파일명에 Windows 구분이 있다면 <code>*win10*.exe</code>와 <code>*win7*.exe</code>를 각각 사용합니다. <code>*.exe</code>처럼 넓은 패턴은 파일을 하나로 구분하지 못할 수 있습니다. 자동 선택이 맞으면 비워 두세요.</p>
 
   <h2 id="cache">설치 파일과 설명은 언제 받고 언제 지우나요?</h2>
@@ -128,7 +140,8 @@
       <tr><td>호스트 미연결</td><td><strong>설정</strong>에서 연결 코드를 등록합니다. 이 상태에서도 내 프로그램의 기존 앱은 실행할 수 있습니다.</td></tr>
       <tr><td>호스트 관리가 비활성 상태</td><td>배포할 PC라면 <strong>호스트 켜기</strong>를 누릅니다. 역할·주소는 <strong>설정</strong>에서도 바꿀 수 있습니다. 설치만 할 PC에서는 배포 카탈로그를 사용합니다.</td></tr>
       <tr><td>저장소 목록이 비어 있음</td><td>호스트의 GitHub 계정·소유자와 저장소 접근 권한을 확인하고 목록을 다시 불러옵니다.</td></tr>
-      <tr><td>저장소는 있지만 설치할 버전이 없음</td><td>GitHub의 정식 Release에 EXE/MSI가 첨부되어 있는지 확인합니다. Draft·Prerelease·소스 ZIP만으로는 설치할 수 없습니다.</td></tr>
+      <tr><td>저장소를 체크할 수 없음</td><td>검사 결과의 사유를 확인합니다. 정식 Release의 EXE/MSI와 Windows별 파일 이름 패턴을 확인한 뒤 <strong>다시 검사</strong>합니다. Draft·Prerelease·소스 ZIP만으로는 설치할 수 없습니다.</td></tr>
+      <tr><td>일부 저장소만 동기화됨</td><td>완료 요약의 실패 사유를 확인합니다. 정상 저장소는 반영되며 실패한 저장소의 이전 게시 항목은 유지됩니다. 원인을 해결한 뒤 다시 검사·동기화합니다.</td></tr>
       <tr><td>이 Windows용 설치 파일이 없음</td><td>해당 OS용 배포 파일과 호스트의 파일 이름 패턴을 확인합니다. Windows 7용이 없으면 현대 Windows용으로 대신 설치하지 않습니다.</td></tr>
       <tr><td>설치 버튼이 비활성 상태</td><td>프로그램을 먼저 선택하고, 이 PC용 배포본이 있는지 확인합니다. 검색 때문에 항목이 숨겨졌다면 검색어를 지웁니다.</td></tr>
       <tr><td>GitHub 권한 또는 요청 한도 오류</td><td>호스트의 GitHub 인증과 저장소 읽기 권한을 확인합니다. 요청 한도 오류라면 안내된 시간 후 다시 동기화합니다.</td></tr>
@@ -144,8 +157,8 @@
   <div class="table"><table>
     <thead><tr><th scope="col">컴퓨터</th><th scope="col">설치 파일</th></tr></thead>
     <tbody>
-      <tr><td>Windows 10/11 64비트</td><td><code>ProgramManager-Setup-0.2.1.exe</code><br>.NET 8 포함</td></tr>
-      <tr><td>Windows 7 SP1 / 8 계열</td><td><code>ProgramManager-Setup-0.2.1-win7.exe</code><br>.NET Framework 4.8 사전 설치 필요</td></tr>
+      <tr><td>Windows 10/11 64비트</td><td><code>ProgramManager-Setup-0.2.2.exe</code><br>.NET 8 포함</td></tr>
+      <tr><td>Windows 7 SP1 / 8 계열</td><td><code>ProgramManager-Setup-0.2.2-win7.exe</code><br>.NET Framework 4.8 사전 설치 필요</td></tr>
     </tbody>
   </table></div>
   <p>기본 설치 위치는 <code>%LOCALAPPDATA%\Programs\Program Manager</code>입니다. 시작 메뉴에서 실행하세요. Windows 7 설치에서 런타임 안내가 나오면 .NET Framework 4.8을 먼저 설치합니다. Manager 설치 프로그램이 런타임을 자동 다운로드하지는 않습니다.</p>
@@ -155,7 +168,7 @@
   <p>직접 입력한 GitHub 토큰과 연결 정보는 Windows 사용자 계정으로 보호하므로 다른 PC·사용자에게 단순 복사해 이전하지 않습니다. 연결 코드에는 호스트 주소·포트·인증서 지문·공유 비밀이 포함됩니다. 사용할 PC에만 전달하고 공개 문서나 스크린샷에 넣지 마세요.</p>
   <p>클라이언트는 TLS 1.2에서 등록된 인증서 지문으로 호스트를 확인합니다. <code>--tray</code>는 트레이 시작, <code>--data-dir &quot;폴더 경로&quot;</code>는 별도 데이터 폴더 실행 옵션입니다. 일반 사용에서는 기본 경로를 사용하면 됩니다.</p>
   <p>원격 무인 설치, 자동 롤백, 호스트 자동 검색, Windows 서비스와 인터넷 중계는 제공하지 않습니다. 실제 Windows 7 PC와 두 번째 물리 PC에서의 설치·통신 검증은 별도입니다.</p>
-  <footer>Program Manager 0.2.1 · 이 도움말 자체는 인터넷 연결 없이 읽을 수 있습니다. <a href="#screens">화면별 용도로 돌아가기</a></footer>
+  <footer>Program Manager 0.2.2 · 이 도움말 자체는 인터넷 연결 없이 읽을 수 있습니다. <a href="#screens">화면별 용도로 돌아가기</a></footer>
 </main>
 </body>
 </html>

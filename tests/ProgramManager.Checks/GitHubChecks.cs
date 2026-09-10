@@ -10,6 +10,7 @@ internal static class GitHubChecks
     public static async Task RunAsync(string root)
     {
         await AtomicReplaceAsync(root);
+        await PartialSyncAsync(root);
         var source = new FakeGitHub();
         using var api = new GitHubApi("fixture-secret", source);
         var store = new CatalogStore(Path.Combine(root, "github-cache")) { GitHub = api };
@@ -17,7 +18,7 @@ internal static class GitHubChecks
         Check(await api.GetCurrentUserAsync() == "owner", "authenticated owner");
         var repositories = await api.ListRepositoriesAsync("owner");
         Check(repositories.Count == 1 && repositories[0].Private, "private repository listing");
-        var catalog = await store.RefreshGitHubAsync(selected);
+        var catalog = (await store.RefreshGitHubAsync(selected)).Catalog;
         var app = catalog.Apps.Single();
         Check(app.Releases.Count == 2 && app.Releases.Single(r => r.Platform == "win7").FileName.Contains("win7"), "separate OS selection");
         Check(app.Releases.Single(r => r.Platform == "win7").FileName.Contains("x86"), "Win7 x86 installer selected");
@@ -54,12 +55,13 @@ internal static class GitHubChecks
         Check((await store.FetchDocumentationAsync(app.Id)).Length > 0 && source.ReadmeRequests == 1, "description reused offline");
         store.GitHub = api;
         source.Ambiguous = true;
-        await Reject(() => store.RefreshGitHubAsync(selected), "ambiguous installer rejected");
+        var ambiguous = await store.RefreshGitHubAsync(selected);
+        Check(ambiguous.Checks.Single().App is null && ambiguous.Checks.Single().Error != "", "ambiguous installer reported per repository");
         Check(store.Read().Apps.Single().Releases.Count == 2, "refresh failure keeps last known catalog");
         await store.RefreshGitHubAsync(new[] { new GitHubSelection { Repository = "owner/program", ModernAssetPattern = "Program-Setup.exe" } });
         source.Ambiguous = false;
         source.Legacy = false;
-        catalog = await store.RefreshGitHubAsync(selected);
+        catalog = (await store.RefreshGitHubAsync(selected)).Catalog;
         Check(catalog.Apps.Single().Releases.All(r => r.Platform == "win10-x64"), "Win7 never receives modern fallback");
         await Reject(() => store.PreparePackageAsync(app.Id, "1.2", "win7"), "missing legacy installer rejected");
         source.Digest = new string('a', 64);
@@ -121,6 +123,105 @@ internal static class GitHubChecks
         try { replace(source, target); } finally { await released; }
         Check(!File.Exists(source) && File.ReadAllText(target) == "new contents", "replacement succeeds after another thread releases a transient lock");
         Console.WriteLine("PASS: atomic replacement retries transient sharing failures and preserves files on permanent lock");
+    }
+
+    private static async Task PartialSyncAsync(string root)
+    {
+        var handler = new SyncGitHub();
+        using var api = new GitHubApi("fixture-secret", handler);
+        var catalogRoot = Path.Combine(root, "partial-sync");
+        var store = new CatalogStore(catalogRoot) { GitHub = api };
+        var ambiguousInfo = new GitHubRepository { FullName = "owner/ambiguous" };
+        var ambiguousSelection = new GitHubSelection { Repository = ambiguousInfo.FullName };
+        var checkedRepo = await store.CheckGitHubRepositoryAsync(ambiguousInfo, ambiguousSelection);
+        Check(checkedRepo.App is null && checkedRepo.Releases?.Count == 1 && checkedRepo.Error != "", "preflight keeps ambiguous asset metadata for correction");
+        Check(handler.RepositoryRequests == 0 && handler.ReleaseRequests == 1, "preflight only requests release metadata");
+        var corrected = CatalogStore.EvaluateGitHubRepository(ambiguousInfo, checkedRepo.Releases!, new GitHubSelection { Repository = ambiguousInfo.FullName, ModernAssetPattern = "App-Setup.exe" });
+        Check(corrected.App != null && corrected.Error == "" && handler.ReleaseRequests == 1, "file pattern re-evaluation does not make a network request");
+        var manual = Path.Combine(root, "Manual-Setup.exe"); File.WriteAllBytes(manual, new byte[] { 1, 2, 3 });
+        await store.PublishAsync("manual", "Manual program", "Keep local publication", "1.0", "Existing", manual);
+        var selected = new[] { "good", "noassets", "ambiguous", "missing", "badinfo", "badrelease" }.Select(name => new GitHubSelection { Repository = "owner/" + name }).ToArray();
+        var progress = new List<GitHubSyncProgress>();
+        var mixed = await store.RefreshGitHubAsync(selected, progress: new SyncProgress(progress.Add));
+        Check(mixed.Checks.Count == selected.Length && mixed.Checks.Count(c => c.App != null) == 1 && mixed.Checks.Count(c => c.Error != "") == selected.Length - 1, "mixed success, missing assets, ambiguity, HTTP404 and malformed metadata isolated");
+        Check(mixed.Catalog.Apps.Count == 2 && mixed.Catalog.Apps.Any(a => a.Id == "manual") && mixed.Catalog.Apps.Any(a => a.GitHubRepository == "owner/good"), "valid repository published alongside local program");
+        Check(progress.Select(p => p.Completed).SequenceEqual(Enumerable.Range(0, selected.Length + 1)) && progress.All(p => p.Total == selected.Length) && progress.Skip(1).Select(p => p.Repository).SequenceEqual(selected.Select(s => s.Repository)), "sync progress includes start and every completed repository");
+        Check(handler.AssetRequests == 0, "partial sync never downloads installer binaries");
+        var path = Path.Combine(catalogRoot, "catalog.json");
+        var previous = File.ReadAllText(path);
+        handler.Modes["good"] = "missing";
+        var allFailed = await store.RefreshGitHubAsync(selected);
+        Check(allFailed.Checks.All(c => c.App is null && c.Error != "") && allFailed.Catalog.Apps.Count == 2 && File.ReadAllText(path) == previous, "all failures retain selected last-known publications and local programs");
+        handler.Modes["good"] = "good";
+        handler.Version = "2.0";
+        using (var cancellation = new CancellationTokenSource())
+        {
+            try
+            {
+                await store.RefreshGitHubAsync(selected, cancellation.Token, new SyncProgress(p => { if (p.Completed == 1) cancellation.Cancel(); }));
+                throw new Exception("Cancelled repository sync unexpectedly committed");
+            }
+            catch (OperationCanceledException) { }
+        }
+        Check(File.ReadAllText(path) == previous, "cancellation after one repository preserves the entire catalog");
+        using (var locked = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+            await Reject(() => store.RefreshGitHubAsync(selected), "commit failure remains a whole-operation error");
+        Check(File.ReadAllText(path) == previous, "atomic commit failure preserves last catalog");
+        var updated = await store.RefreshGitHubAsync(selected);
+        Check(updated.Catalog.Apps.Single(a => a.GitHubRepository == "owner/good").Latest!.Version == "2.0", "healthy repository updates despite failed siblings");
+        handler.Modes["good"] = "timeout";
+        var timeout = await store.RefreshGitHubAsync(selected);
+        Check(timeout.Checks[0].Error.Contains("시간") && timeout.Catalog.Apps.Single(a => a.GitHubRepository == "owner/good").Latest!.Version == "2.0", "upstream timeout is isolated and keeps last publication");
+        var deselected = await store.RefreshGitHubAsync(selected.Skip(1));
+        Check(deselected.Catalog.Apps.Count == 1 && deselected.Catalog.Apps.Single().Id == "manual", "deselection removes previous GitHub publication even when remaining selections fail");
+        store.GitHub = null;
+        Check((await store.RefreshGitHubAsync(Array.Empty<GitHubSelection>())).Catalog.Apps.Single().Id == "manual", "empty selection works without a GitHub connection");
+        handler.Modes["good"] = "good";
+        var fullRoot = Path.Combine(root, "full-catalog");
+        var full = new CatalogStore(fullRoot) { GitHub = api };
+        JsonFiles.Write(Path.Combine(fullRoot, "catalog.json"), new Catalog { Apps = Enumerable.Range(0, 200).Select(i => new CatalogApp { Id = "manual-" + i, Name = "Manual " + i, Releases = [new AppRelease { Version = "1.0", FileName = "Setup.exe", Size = 3, Sha256 = new string('a', 64), PublishedUtc = DateTimeOffset.UtcNow }] }).ToList() });
+        var capacity = await full.RefreshGitHubAsync(selected.Take(1));
+        Check(capacity.Catalog.Apps.Count == 200 && capacity.Checks.Single().App is null && capacity.Checks.Single().Error.Contains("200"), "catalog capacity is a repository result and keeps manual entries");
+        var aliases = await new CatalogStore(Path.Combine(root, "alias-catalog")) { GitHub = api }.RefreshGitHubAsync(new[] { new GitHubSelection { Repository = "owner/good" }, new GitHubSelection { Repository = "owner/alias" } });
+        Check(aliases.Catalog.Apps.Count == 1 && aliases.Checks.Count(c => c.Error != "") == 1, "canonical repository alias conflict does not abort healthy publication");
+        Console.WriteLine("PASS: per-repository preflight, partial sync, retained failures, progress, cancellation and atomic commit preservation");
+    }
+
+    private sealed class SyncProgress(Action<GitHubSyncProgress> report) : IProgress<GitHubSyncProgress>
+    {
+        public void Report(GitHubSyncProgress value) => report(value);
+    }
+
+    private sealed class SyncGitHub : HttpMessageHandler
+    {
+        public readonly Dictionary<string, string> Modes = new() { ["good"] = "good", ["noassets"] = "noassets", ["ambiguous"] = "ambiguous", ["missing"] = "missing", ["badinfo"] = "badinfo", ["badrelease"] = "badrelease", ["alias"] = "good" };
+        public int RepositoryRequests, ReleaseRequests, AssetRequests;
+        public string Version = "1.0";
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var parts = request.RequestUri!.AbsolutePath.Split('/');
+            var name = parts[3];
+            var mode = Modes[name];
+            if (mode == "missing") return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound) { Content = new StringContent("{}") });
+            if (mode == "timeout") throw new TaskCanceledException("Fixture upstream timeout");
+            object payload;
+            if (parts.Length == 4)
+            {
+                RepositoryRequests++;
+                payload = mode == "badinfo" ? new { full_name = "owner/" + name, @private = "not-a-boolean" } : (object)new { full_name = "owner/" + (name == "alias" ? "good" : name), description = "Example " + name, @private = true };
+            }
+            else if (parts.Length == 5 && parts[4] == "releases")
+            {
+                ReleaseRequests++;
+                var assets = new List<object>();
+                if (mode != "noassets") assets.Add(new { id = 20, name = "App-Setup.exe", size = 3, digest = (string?)null });
+                if (mode == "ambiguous") assets.Add(new { id = 21, name = "Other-Setup.exe", size = 3, digest = (string?)null });
+                payload = mode == "badrelease" ? new[] { new { draft = false, prerelease = false, tag_name = "v" + Version, body = "Missing assets field", published_at = "2026-09-10T00:00:00Z" } } : (object)new[] { new { draft = false, prerelease = false, tag_name = "v" + Version, body = "Release", published_at = "2026-09-10T00:00:00Z", assets } };
+            }
+            else { AssetRequests++; throw new Exception("Sync unexpectedly requested a binary: " + request.RequestUri.AbsolutePath); }
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json") });
+        }
     }
 
     private static async Task GracefulDisposeAsync()

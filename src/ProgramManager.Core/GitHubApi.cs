@@ -81,8 +81,12 @@ public sealed class GitHubApi : IDisposable
     {
         using var operation = BeginOperation();
         using var json = await JsonAsync("repos/" + RepositoryName(repository), token).ConfigureAwait(false);
-        var item = json.RootElement;
-        return new GitHubRepository { FullName = RepositoryName(Text(item, "full_name")), Description = Limited(Text(item, "description"), 10000), Private = item.TryGetProperty("private", out var privacy) && privacy.GetBoolean() };
+        try
+        {
+            var item = json.RootElement;
+            return new GitHubRepository { FullName = RepositoryName(Text(item, "full_name")), Description = Limited(Text(item, "description"), 10000), Private = item.TryGetProperty("private", out var privacy) && privacy.GetBoolean() };
+        }
+        catch (Exception ex) when (MalformedMetadata(ex)) { throw new InvalidDataException(repository + ": GitHub 저장소 정보에 필수 항목이 없거나 값 형식이 올바르지 않습니다.", ex); }
     }
 
     public async Task<List<GitHubRepository>> ListRepositoriesAsync(string owner, CancellationToken token = default)
@@ -110,35 +114,41 @@ public sealed class GitHubApi : IDisposable
     {
         using var operation = BeginOperation();
         using var json = await JsonAsync("repos/" + RepositoryName(repository) + "/releases?per_page=100", token).ConfigureAwait(false);
-        var releases = new List<GitHubRelease>();
-        foreach (var item in json.RootElement.EnumerateArray())
+        try
         {
-            if (item.GetProperty("draft").GetBoolean() || item.GetProperty("prerelease").GetBoolean()) continue;
-            var tag = Text(item, "tag_name");
-            var versionText = tag.StartsWith("v", StringComparison.OrdinalIgnoreCase) ? tag.Substring(1) : tag;
-            string version;
-            try { version = CatalogRules.NormalizeVersion(versionText); }
-            catch (InvalidDataException) { continue; }
-            var release = new GitHubRelease { Tag = tag, Version = version, Notes = Limited(Text(item, "body"), 30000), PublishedUtc = item.GetProperty("published_at").GetDateTimeOffset() };
-            foreach (var asset in item.GetProperty("assets").EnumerateArray())
+            var releases = new List<GitHubRelease>();
+            foreach (var item in json.RootElement.EnumerateArray())
             {
-                var name = Text(asset, "name");
-                if (!name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) && !name.EndsWith(".msi", StringComparison.OrdinalIgnoreCase)) continue;
-                CatalogRules.InstallerName(name);
-                var digest = Text(asset, "digest");
-                var hash = "";
-                if (digest != "")
+                if (item.GetProperty("draft").GetBoolean() || item.GetProperty("prerelease").GetBoolean()) continue;
+                var tag = Text(item, "tag_name");
+                var versionText = tag.StartsWith("v", StringComparison.OrdinalIgnoreCase) ? tag.Substring(1) : tag;
+                string version;
+                try { version = CatalogRules.NormalizeVersion(versionText); }
+                catch (InvalidDataException) { continue; }
+                var release = new GitHubRelease { Tag = tag, Version = version, Notes = Limited(Text(item, "body"), 30000), PublishedUtc = item.GetProperty("published_at").GetDateTimeOffset() };
+                foreach (var asset in item.GetProperty("assets").EnumerateArray())
                 {
-                    if (!Regex.IsMatch(digest, "\\Asha256:[a-fA-F0-9]{64}\\z")) throw new InvalidDataException(repository + ": GitHub 설치 파일의 SHA-256 형식이 올바르지 않습니다.");
-                    hash = digest.Substring(7).ToUpperInvariant();
+                    var name = Text(asset, "name");
+                    if (!name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) && !name.EndsWith(".msi", StringComparison.OrdinalIgnoreCase)) continue;
+                    CatalogRules.InstallerName(name);
+                    var digest = Text(asset, "digest");
+                    var hash = "";
+                    if (digest != "")
+                    {
+                        if (!Regex.IsMatch(digest, "\\Asha256:[a-fA-F0-9]{64}\\z")) throw new InvalidDataException(repository + ": GitHub 설치 파일의 SHA-256 형식이 올바르지 않습니다.");
+                        hash = digest.Substring(7).ToUpperInvariant();
+                    }
+                    release.Assets.Add(new GitHubAsset { Id = asset.GetProperty("id").GetInt64(), Name = name, Size = asset.GetProperty("size").GetInt64(), Sha256 = hash });
                 }
-                release.Assets.Add(new GitHubAsset { Id = asset.GetProperty("id").GetInt64(), Name = name, Size = asset.GetProperty("size").GetInt64(), Sha256 = hash });
+                releases.Add(release);
+                if (releases.Count == 30) break;
             }
-            releases.Add(release);
-            if (releases.Count == 30) break;
+            return releases;
         }
-        return releases;
+        catch (Exception ex) when (MalformedMetadata(ex)) { throw new InvalidDataException(repository + ": GitHub 릴리스 정보에 필수 항목이 없거나 값 형식이 올바르지 않습니다.", ex); }
     }
+
+    private static bool MalformedMetadata(Exception ex) => ex is KeyNotFoundException or FormatException || (ex is InvalidOperationException && ex is not ObjectDisposedException);
 
     public async Task<string> GetReadmeAsync(string repository, CancellationToken token = default)
     {
