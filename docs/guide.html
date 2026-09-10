@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Program Manager 0.2.2 사용 안내</title>
+  <title>Program Manager 0.3.0 사용 안내</title>
   <style>
     body { margin: 0; background: #f3f6f9; color: #243042; font: 16px/1.75 "Segoe UI", "Malgun Gothic", sans-serif; }
     main { display: block; box-sizing: border-box; max-width: 940px; margin: 28px auto; padding: 36px; background: #fff; border: 1px solid #dbe2e8; border-radius: 12px; }
@@ -30,13 +30,13 @@
 <body>
 <main>
   <span class="badge">설치에 포함된 오프라인 도움말</span>
-  <h1>Program Manager 0.2.2 사용 안내</h1>
+  <h1>Program Manager 0.3.0 사용 안내</h1>
   <p class="lead">이 PC의 프로그램은 한 목록에서 실행하고, 다른 PC에는 GitHub의 배포 버전을 전달합니다.</p>
   <p><strong>이미 등록한 프로그램은 그대로 사용하면 됩니다.</strong> 새 배포는 호스트에서 GitHub 저장소를 선택하는 방식입니다. 클라이언트 PC에는 GitHub 계정이나 인터넷 연결이 필요하지 않습니다.</p>
   <p>도움말과 오프라인 설명은 Program Manager 안에서 열립니다. 별도의 브라우저가 필요하지 않으며, 문서 안의 목차로 이동할 수 있습니다.</p>
 
   <nav aria-label="도움말 목차">
-    <a href="#screens">화면별 용도</a><a href="#launch">기존 프로그램 실행</a><a href="#host">호스트 시작 3단계</a><a href="#client">클라이언트 시작 3단계</a><a href="#releases">Windows별 버전</a><a href="#cache">다운로드·정리</a><a href="#help">문제 해결</a>
+    <a href="#screens">화면별 용도</a><a href="#launch">기존 프로그램 실행</a><a href="#self-update">Manager 자체 업데이트</a><a href="#host">호스트 시작 3단계</a><a href="#client">클라이언트 시작 3단계</a><a href="#releases">Windows별 버전</a><a href="#cache">다운로드·정리</a><a href="#help">문제 해결</a>
   </nav>
 
   <h2 id="screens">어느 화면에서 시작하나요?</h2>
@@ -46,6 +46,7 @@
       <tr><td>이 PC에 설치된 앱 실행</td><td><strong>내 프로그램</strong></td><td>프로그램 선택 → <strong>실행</strong></td></tr>
       <tr><td>새 프로그램 설치·기존 앱 업데이트</td><td><strong>배포 카탈로그</strong></td><td>호스트 연결 → 목록 새로고침 → 프로그램 선택</td></tr>
       <tr><td>다른 PC에 배포할 프로그램 선택</td><td><strong>호스트 관리</strong></td><td>호스트 켜기 → GitHub 연결 → 저장소 선택</td></tr>
+      <tr><td>Program Manager 자체 업데이트</td><td><strong>트레이 오른쪽 클릭 메뉴</strong></td><td>관리 프로그램 업데이트 확인 → 새 버전의 업데이트 및 재시작</td></tr>
     </tbody>
   </table></div>
   <p><strong>내 프로그램</strong>은 이 컴퓨터의 실행 목록입니다. <strong>배포 카탈로그</strong>는 설치할 수 있는 목록이므로, 항목이 보인다고 이미 설치된 것은 아닙니다. <strong>호스트 관리</strong>는 배포할 목록을 준비하는 곳이며 개발 PC에서 사용합니다.</p>
@@ -67,6 +68,23 @@
   <p>창의 <strong>×</strong>를 누르면 트레이에 남습니다. Windows 오른쪽 아래 아이콘을 클릭하면 다시 열립니다. 보이지 않으면 숨겨진 아이콘 영역을 확인하세요. 완전히 종료하려면 트레이 메뉴의 <strong>종료</strong>를 선택합니다.</p>
   <p><strong>최근 프로그램 바로 실행:</strong> 트레이 아이콘을 <strong>오른쪽 클릭</strong>하면 메뉴 맨 위에 최근 실행한 등록 프로그램이 최대 5개 표시됩니다. 원하는 항목을 클릭하면 바로 실행합니다. 중복 없이 가장 최근 실행한 항목부터 표시하며, Manager를 다시 실행해도 유지됩니다.</p>
   <p>Manager에서 실행한 기록만 사용합니다. 과거 실행 이력을 자동으로 가져오지 않으므로 처음에는 최근 목록이 비어 있습니다. 등록 이름·실행 경로를 편집하면 최근 항목에도 반영되고, 등록을 제거한 항목은 최근 목록에서도 사라집니다.</p>
+
+  <h2 id="self-update">Program Manager 자체 업데이트</h2>
+  <p>0.3.0부터 Manager가 시작할 때와 실행 중 <strong>6시간마다</strong> 새 버전을 확인합니다. 자동 확인은 기본으로 켜져 있으며 <strong>설정</strong>에서 끌 수 있습니다. 새 버전마다 트레이 알림을 한 번 표시합니다.</p>
+  <ol class="steps">
+    <li><strong>새 버전 확인</strong><br>트레이 아이콘을 오른쪽 클릭하고 <strong>관리 프로그램 업데이트 확인</strong>을 선택합니다. 배포 카탈로그의 다른 프로그램 설치와는 별개입니다.</li>
+    <li><strong>업데이트 선택·확인</strong><br>새 버전이 있으면 버전이 표시된 <strong>업데이트 및 재시작</strong> 항목을 누르고 설치를 확인합니다. 자동 확인이나 알림만으로 설치하지 않습니다.</li>
+    <li><strong>다운로드·검증 후 다시 시작</strong><br>진행 상태를 보며 다운로드를 기다립니다. 크기·SHA-256 검증이 끝나면 Manager를 종료하고 설치한 뒤 기존 데이터로 다시 시작합니다.</li>
+  </ol>
+  <div class="table"><table>
+    <thead><tr><th scope="col">이 PC의 연결 상태</th><th scope="col">Manager 업데이트를 받는 곳</th></tr></thead>
+    <tbody>
+      <tr><td>호스트에 연결된 클라이언트</td><td>연결된 호스트에서 받습니다. 인터넷이 없어도 되지만 <strong>호스트가 0.3.0 이상</strong>이어야 합니다.</td></tr>
+      <tr><td>호스트 PC 또는 호스트에 연결되지 않은 PC</td><td>공개 GitHub 저장소 <code>yunhyok/ProgramManager</code>의 Releases에서 직접 받습니다. 인터넷 연결이 필요하며 추가 GitHub 로그인·토큰은 필요하지 않습니다.</td></tr>
+    </tbody>
+  </table></div>
+  <p>숫자 태그의 정식 Release에서 이 Windows에 맞는 설치 파일만 사용합니다. Windows 7용이 없으면 Windows 10/11용 파일로 대신 업데이트하지 않습니다. 일반 프로그램의 GitHub 배포는 기존과 같이 클라이언트 0.2.0 이상에서 사용할 수 있습니다.</p>
+  <p>Windows 알림 설정 때문에 트레이 알림이 보이지 않을 수 있습니다. 이때도 오른쪽 클릭 메뉴에서 직접 확인하고 업데이트할 수 있습니다. 호스트 버전이 낮아 자체 업데이트를 받을 수 없다면 호스트부터 업데이트하세요.</p>
 
   <h2 id="host">호스트 시작 · 3단계</h2>
   <p class="muted">인터넷이 연결된 개발 PC에서 진행합니다. 같은 Program Manager 앱을 사용합니다.</p>
@@ -150,6 +168,8 @@
       <tr><td>인증서가 달라졌다는 오류</td><td>호스트 설정을 확인하고 올바른 연결 코드를 다시 등록합니다. 호스트 주소가 바뀌어도 새 코드를 받아야 합니다.</td></tr>
       <tr><td>파일 검증 실패</td><td>목록을 새로 고친 뒤 다시 받습니다. 계속 실패하면 호스트에서 GitHub Release의 원본 파일을 확인합니다. 검증 실패 파일은 설치하지 않습니다.</td></tr>
       <tr><td>설치 후 실행되지 않음</td><td>실제 설치된 EXE/LNK 경로를 확인하고 <strong>편집</strong> 또는 <strong>기존 설치 연결</strong>로 수정합니다. 대상 프로그램의 실행 오류도 확인하세요.</td></tr>
+      <tr><td>Manager 업데이트 알림이 보이지 않음</td><td>Windows 알림 설정을 확인하거나 트레이 메뉴의 <strong>관리 프로그램 업데이트 확인</strong>을 사용합니다. 자동 확인을 꺼도 이 메뉴는 사용할 수 있습니다.</td></tr>
+      <tr><td>오프라인 PC에서 Manager 자체 업데이트 실패</td><td>연결된 호스트가 실행 중이며 0.3.0 이상인지 확인합니다. Manager의 새 버전 확인에는 호스트의 인터넷 연결이 필요합니다. 설치 실패 시 이전 Manager 파일을 복구하고 재실행합니다. 파일 복구도 실패하면 표시된 설치 로그를 확인하고 설치 파일을 직접 실행합니다.</td></tr>
     </tbody>
   </table></div>
 
@@ -157,8 +177,8 @@
   <div class="table"><table>
     <thead><tr><th scope="col">컴퓨터</th><th scope="col">설치 파일</th></tr></thead>
     <tbody>
-      <tr><td>Windows 10/11 64비트</td><td><code>ProgramManager-Setup-0.2.2.exe</code><br>.NET 8 포함</td></tr>
-      <tr><td>Windows 7 SP1 / 8 계열</td><td><code>ProgramManager-Setup-0.2.2-win7.exe</code><br>.NET Framework 4.8 사전 설치 필요</td></tr>
+      <tr><td>Windows 10/11 64비트</td><td><code>ProgramManager-Setup-0.3.0.exe</code><br>.NET 8 포함</td></tr>
+      <tr><td>Windows 7 SP1 / 8 계열</td><td><code>ProgramManager-Setup-0.3.0-win7.exe</code><br>.NET Framework 4.8 사전 설치 필요</td></tr>
     </tbody>
   </table></div>
   <p>기본 설치 위치는 <code>%LOCALAPPDATA%\Programs\Program Manager</code>입니다. 시작 메뉴에서 실행하세요. Windows 7 설치에서 런타임 안내가 나오면 .NET Framework 4.8을 먼저 설치합니다. Manager 설치 프로그램이 런타임을 자동 다운로드하지는 않습니다.</p>
@@ -167,8 +187,8 @@
   <p>기본 데이터 폴더는 <code>%LOCALAPPDATA%\ProgramManager</code>입니다. 호스트 캐시는 <code>repository\temp</code>, 클라이언트 임시 파일은 <code>temp</code>에 둡니다. 프로그램을 제거해도 사용자 데이터는 보존합니다.</p>
   <p>직접 입력한 GitHub 토큰과 연결 정보는 Windows 사용자 계정으로 보호하므로 다른 PC·사용자에게 단순 복사해 이전하지 않습니다. 연결 코드에는 호스트 주소·포트·인증서 지문·공유 비밀이 포함됩니다. 사용할 PC에만 전달하고 공개 문서나 스크린샷에 넣지 마세요.</p>
   <p>클라이언트는 TLS 1.2에서 등록된 인증서 지문으로 호스트를 확인합니다. <code>--tray</code>는 트레이 시작, <code>--data-dir &quot;폴더 경로&quot;</code>는 별도 데이터 폴더 실행 옵션입니다. 일반 사용에서는 기본 경로를 사용하면 됩니다.</p>
-  <p>원격 무인 설치, 자동 롤백, 호스트 자동 검색, Windows 서비스와 인터넷 중계는 제공하지 않습니다. 실제 Windows 7 PC와 두 번째 물리 PC에서의 설치·통신 검증은 별도입니다.</p>
-  <footer>Program Manager 0.2.2 · 이 도움말 자체는 인터넷 연결 없이 읽을 수 있습니다. <a href="#screens">화면별 용도로 돌아가기</a></footer>
+  <p>배포 프로그램의 원격 무인 설치·자동 롤백, 호스트 자동 검색, Windows 서비스와 인터넷 중계는 제공하지 않습니다. Manager 자체 업데이트는 설치 실패 시 이전 Manager 파일의 복구를 시도합니다. 실제 Windows 7 PC와 두 번째 물리 PC에서의 설치·통신 검증은 별도입니다.</p>
+  <footer>Program Manager 0.3.0 · 이 도움말 자체는 인터넷 연결 없이 읽을 수 있습니다. <a href="#screens">화면별 용도로 돌아가기</a></footer>
 </main>
 </body>
 </html>

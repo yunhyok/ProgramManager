@@ -27,6 +27,8 @@ public sealed class UserSettings
     public string PairingProtected { get; set; } = "";
     public List<LocalProgram> Programs { get; set; } = [];
     public List<string> RecentProgramIds { get; set; } = [];
+    public bool ManagerAutoCheck { get; set; } = true;
+    public string ManagerNotifiedVersion { get; set; } = "";
     public string GitHubOwner { get; set; } = "";
     public bool UseGitHubCli { get; set; } = true;
     public string GitHubTokenProtected { get; set; } = "";
@@ -172,6 +174,8 @@ public sealed class AppState
             if (settings.RecentProgramIds is null || settings.RecentProgramIds.Count > 5 || settings.RecentProgramIds.Any(id => !Guid.TryParse(id, out _))
                 || settings.RecentProgramIds.Distinct(StringComparer.OrdinalIgnoreCase).Count() != settings.RecentProgramIds.Count)
                 throw new InvalidDataException("최근 실행 목록이 올바르지 않습니다.");
+            CatalogRules.Text(settings.ManagerNotifiedVersion, 43);
+            if (settings.ManagerNotifiedVersion.Length > 0) CatalogRules.Version(settings.ManagerNotifiedVersion);
             new PairingInfo { Host = settings.AdvertisedHost, Port = settings.Port, Fingerprint = new string('0', 64), Token = new string('0', 64) }.Validate();
             CatalogRules.Text(settings.PairingProtected, 20000);
             CatalogRules.Text(settings.GitHubOwner, 100);

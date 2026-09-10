@@ -1,4 +1,4 @@
-# Program Manager 0.2.2
+# Program Manager 0.3.0
 
 개인 개발 프로그램을 트레이의 목록에서 실행하고, GitHub Releases의 프로그램을 내부망 PC에 배포하는 Windows 앱입니다. **호스트에서 배포할 저장소를 선택하면 클라이언트는 그 목록에서 설치합니다.** 인터넷이 없는 클라이언트도 사용할 수 있습니다.
 
@@ -38,12 +38,26 @@
 
 | 컴퓨터 | 설치 파일 | 런타임 |
 | --- | --- | --- |
-| Windows 10/11 64비트 | `ProgramManager-Setup-0.2.2.exe` | .NET 8 포함 |
-| Windows 7 SP1 / 8 계열 | `ProgramManager-Setup-0.2.2-win7.exe` | .NET Framework 4.8 사전 설치 필요 |
+| Windows 10/11 64비트 | `ProgramManager-Setup-0.3.0.exe` | .NET 8 포함 |
+| Windows 7 SP1 / 8 계열 | `ProgramManager-Setup-0.3.0-win7.exe` | .NET Framework 4.8 사전 설치 필요 |
 
 기본 설치 위치는 `%LOCALAPPDATA%\Programs\Program Manager`입니다. 시작 메뉴에서 실행할 수 있고, 바탕화면 바로가기는 기본으로 만들지 않습니다. Windows 로그인 시 자동 실행은 설치 옵션 또는 앱 설정에서 선택합니다.
 
 이미 등록한 프로그램의 설치 위치와 실행 경로는 유지됩니다. **목록에서 제거**는 대상 프로그램을 삭제하지 않습니다. `.lnk` 등록 시에는 Manager 데이터 폴더에 바로가기를 복사하므로 실행을 확인한 후 바탕화면 바로가기를 정리할 수 있습니다. 대상 EXE 파일 자체는 원래 위치에 두세요.
+
+## Program Manager 자체 업데이트
+
+0.3.0부터 Manager가 시작할 때와 실행 중 **6시간마다** 새 버전을 확인합니다. 자동 확인은 기본으로 켜져 있으며 **설정**에서 끌 수 있습니다. 새 버전마다 트레이 알림을 한 번 표시합니다. Windows 알림 설정에 따라 알림이 보이지 않아도 트레이 메뉴는 사용할 수 있습니다.
+
+1. 트레이 아이콘을 오른쪽 클릭하고 **관리 프로그램 업데이트 확인**을 선택합니다. 배포 카탈로그의 다른 프로그램 업데이트와 구분되는 기능입니다.
+2. 새 버전이 있으면 버전이 표시된 **업데이트 및 재시작** 항목을 선택하고 설치를 확인합니다.
+3. 진행 상태를 보며 다운로드를 기다립니다. 크기·SHA-256 검증이 끝나면 Manager를 종료하고 설치한 뒤 기존 데이터로 다시 시작합니다. 새 버전 확인이나 알림 표시만으로 설치하지 않으며, 사용자가 업데이트 실행을 선택하고 확인해야 진행합니다.
+
+호스트에 연결된 클라이언트는 **0.3.0 이상 호스트**를 통해 Manager 업데이트를 받아 인터넷 없이 사용할 수 있습니다. 호스트가 이전 버전이면 호스트부터 업데이트하세요. 호스트 PC와 호스트에 연결되지 않은 PC는 공개 저장소 [yunhyok/ProgramManager](https://github.com/yunhyok/ProgramManager)의 Releases를 직접 조회하며 추가 GitHub 인증 정보가 필요하지 않습니다.
+
+Manager의 새 버전 확인에는 호스트의 인터넷 연결이 필요합니다. 설치 전에 기존 Manager 파일을 임시 백업하고, 설치가 실패하면 이전 파일을 복구한 뒤 다시 실행합니다. 복구까지 실패하면 설치 로그와 수동 복구 안내를 표시합니다. 등록 목록과 설정 데이터는 이 파일 교체 대상에 포함하지 않습니다.
+
+숫자 태그의 정식 Release에서 이 PC의 Windows에 맞는 Manager 설치 파일만 사용합니다. Windows 7용 파일이 없으면 Windows 10/11용 파일을 대신 제안하지 않습니다. 일반 프로그램의 GitHub 배포에 필요한 최소 클라이언트 버전은 계속 0.2.0입니다.
 
 ## 배포 동작
 
@@ -102,11 +116,11 @@ Windows, .NET SDK 8, Inno Setup 6.3 이상 6.x가 필요합니다. .NET Framewor
 | Windows 7용 실행 파일 및 의존 파일 | `artifacts/publish/win7/` |
 | 두 설치 파일 및 `SHA256SUMS.txt` | `artifacts/installers/` |
 
-`.github/workflows/build.yml`은 빌드와 검사를 실행하고 설치 파일을 Actions 아티팩트로 보관합니다. 현재 이 프로젝트의 원격 저장소는 구성되지 않았습니다. 앱이 다른 GitHub 저장소를 조회하는 기능과 Program Manager 자체의 원격 CI·Release 게시 여부는 별개입니다.
+`.github/workflows/build.yml`은 Windows 빌드·검사 후 두 설치 파일과 `SHA256SUMS.txt`를 버전별 Actions 아티팩트로 보관합니다. 공개 저장소 `yunhyok/ProgramManager`에 프로젝트 버전과 일치하는 `v` 태그를 push하면, 성공한 빌드의 세 파일만 GitHub Release로 게시합니다. 게시 전 원격 태그의 커밋과 설치 파일 해시를 확인합니다. 일반 브랜치 push·Pull Request·수동 실행은 Release를 게시하지 않습니다.
 
-저장소 사전 검사와 동기화 결과는 [0.2.2 검증 기록](docs/verification-0.2.2.md)을 참고하세요. 최근 실행 메뉴와 이전 PC 업데이트 결과는 [0.2.1 검증 기록](docs/verification-0.2.1.md), GitHub 배포 검증은 [0.2.0 검증 기록](docs/verification-0.2.0.md)에 있습니다. Windows 7 실기기와 두 번째 물리 PC에서의 설치·통신은 별도 확인이 필요합니다. 최신 Windows에서 `net48`을 실행한 결과만으로 Windows 7 호환성을 확정하지 않습니다. 이전 결과는 [0.1.1 UI 검증 기록](docs/verification-0.1.1.md), [0.1.0 검증 기록](docs/verification.md)에 있습니다.
+자체 업데이트와 현재 버전의 확인 범위는 [0.3.0 검증 기록](docs/verification-0.3.0.md)을 참고하세요. 이전 결과는 [0.2.2 저장소 검사·동기화](docs/verification-0.2.2.md), [0.2.1 최근 실행 메뉴](docs/verification-0.2.1.md), [0.2.0 GitHub 배포](docs/verification-0.2.0.md), [0.1.1 UI](docs/verification-0.1.1.md), [0.1.0 배포](docs/verification.md)에 있습니다. Windows 7 실기기와 두 번째 물리 PC에서의 설치·통신은 별도 확인이 필요합니다. 최신 Windows에서 `net48`을 실행한 결과만으로 Windows 7 호환성을 확정하지 않습니다.
 
-설치 프로그램의 실제 설치 위치는 제품마다 달라 사용자가 실행 경로를 확인합니다. 원격 무인 설치, 자동 롤백, 호스트 자동 검색, Windows 서비스와 인터넷 중계는 제공하지 않습니다.
+설치 프로그램의 실제 설치 위치는 제품마다 달라 사용자가 실행 경로를 확인합니다. 배포 프로그램의 원격 무인 설치·자동 롤백, 호스트 자동 검색, Windows 서비스와 인터넷 중계는 제공하지 않습니다.
 
 ## IntraDrop 통합
 

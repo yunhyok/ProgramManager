@@ -26,6 +26,11 @@ internal sealed class MainForm : Form
     private CatalogServer? _server;
     private GitHubApi? _githubApi;
     private readonly System.Windows.Forms.Timer _cacheTimer = new() { Interval = 60 * 60 * 1000 };
+    private readonly System.Windows.Forms.Timer _managerTimer = new() { Interval = 6 * 60 * 60 * 1000 };
+    private readonly CancellationTokenSource _managerLifetime = new();
+    private readonly ManagerUpdater _managerUpdater;
+    private ManagerUpdate? _managerUpdate;
+    private bool _checkingManager;
     private readonly Button _enableHost;
     private CancellationTokenSource? _operation;
     private bool _busy, _quitting;
@@ -34,6 +39,7 @@ internal sealed class MainForm : Form
     {
         Ui.BeginForm(this);
         _state = state;
+        _managerUpdater = new ManagerUpdater(state.Root);
         Text = Program.DisplayName;
         ForeColor = Ui.Ink;
         BackColor = Ui.Canvas;
@@ -130,6 +136,7 @@ internal sealed class MainForm : Form
         menu.Opening += (_, _) => PopulateTrayMenu(menu);
         _tray = new NotifyIcon { Icon = Icon, Text = Program.DisplayName, Visible = true, ContextMenuStrip = menu };
         _tray.MouseClick += (_, e) => { if (e.Button == MouseButtons.Left) ShowManager(); };
+        _tray.BalloonTipClicked += async (_, _) => { if (_managerUpdate != null) await InstallManagerUpdateAsync(); else ShowManager(); };
         FormClosing += (_, e) =>
         {
             if (_quitting || e.CloseReason == CloseReason.WindowsShutDown || e.CloseReason == CloseReason.TaskManagerClosing) return;
@@ -141,9 +148,13 @@ internal sealed class MainForm : Form
             if (startInTray) Hide();
             await RunAsync("시작 중…", async _ => { LoadCatalogs(); await RestartHostAsync(); LoadCatalogs(); CleanupTemporaryFiles(false); Render(); });
             if (_state.Settings.PairingProtected.Length > 0) await RefreshAsync();
+            ShowManagerUpdateResult();
+            if (_state.Settings.ManagerAutoCheck) await CheckManagerUpdateAsync(false);
         };
         _cacheTimer.Tick += (_, _) => { if (!_busy) CleanupTemporaryFiles(false); };
         _cacheTimer.Start();
+        _managerTimer.Tick += async (_, _) => { if (_state.Settings.ManagerAutoCheck) await CheckManagerUpdateAsync(false); };
+        _managerTimer.Start();
         Render();
         ResumeLayout(true);
     }
@@ -168,7 +179,10 @@ internal sealed class MainForm : Form
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(Program.DisplayName, null, (_, _) => ShowManager());
         menu.Items.Add("프로그램 목록", null, (_, _) => { _tabs.SelectedIndex = 0; ShowManager(); });
-        menu.Items.Add("업데이트 확인", null, async (_, _) => { ShowManager(); _tabs.SelectedIndex = 1; await RefreshAsync(); });
+        menu.Items.Add("배포 프로그램 업데이트 확인", null, async (_, _) => { ShowManager(); _tabs.SelectedIndex = 1; await RefreshAsync(); });
+        if (_managerUpdate is { } update)
+            menu.Items.Add(new ToolStripMenuItem("Program Manager " + update.Release.Version + " 업데이트 및 재시작", null, async (_, _) => await InstallManagerUpdateAsync()) { Enabled = !_busy && !_checkingManager });
+        menu.Items.Add(new ToolStripMenuItem(_checkingManager ? "관리 프로그램 새 버전 확인 중…" : "관리 프로그램 업데이트 확인", null, async (_, _) => await CheckManagerUpdateAsync(true)) { Enabled = !_busy && !_checkingManager });
         menu.Items.Add("설정", null, async (_, _) => { ShowManager(); await SettingsAsync(); });
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("종료", null, async (_, _) => await QuitAsync());
@@ -452,7 +466,8 @@ internal sealed class MainForm : Form
         try
         {
             if (all) _state.Store.ClearCache(); else _state.Store.CleanupCache(age);
-            foreach (var directory in new[] { _state.Downloads, _state.Documents })
+            if (all) _managerUpdater.Store.ClearCache(); else _managerUpdater.Store.CleanupCache(age);
+            foreach (var directory in new[] { _state.Downloads, _state.Documents, _managerUpdater.Downloads })
             {
                 if (!Directory.Exists(directory) || (File.GetAttributes(directory) & FileAttributes.ReparsePoint) != 0) continue;
                 foreach (var path in Directory.GetFiles(directory))
@@ -548,6 +563,88 @@ internal sealed class MainForm : Form
         && release.Size == candidate.Size && release.Sha256 == candidate.Sha256 && release.FileName == candidate.FileName
         && release.GitHubAssetId == candidate.GitHubAssetId && release.GitHubTag == candidate.GitHubTag && release.PublishedUtc == candidate.PublishedUtc;
 
+    private async Task CheckManagerUpdateAsync(bool manual)
+    {
+        if (_busy || _checkingManager || IsDisposed) return;
+        _checkingManager = true;
+        var pairing = _state.Settings.PairingProtected;
+        var install = false;
+        try
+        {
+            if (manual) _status.Text = "관리 프로그램 새 버전을 확인하고 있습니다…";
+            var update = await _managerUpdater.CheckAsync(_state.Pairing, Program.Version, manual, _managerLifetime.Token);
+            if (IsDisposed || _quitting || pairing != _state.Settings.PairingProtected || (!manual && !_state.Settings.ManagerAutoCheck)) return;
+            _managerUpdate = update;
+            if (update != null)
+            {
+                if (ManagerUpdater.ShouldNotify(update.Release.Version, _state.Settings.ManagerNotifiedVersion))
+                {
+                    var next = AppState.Clone(_state.Settings);
+                    next.ManagerNotifiedVersion = update.Release.Version;
+                    _state.CommitSettings(next);
+                    _tray.ShowBalloonTip(10000, Program.DisplayName,
+                        "새 버전 " + update.Release.Version + "이 있습니다. 알림 또는 트레이의 업데이트 및 재시작 메뉴를 선택하세요.", ToolTipIcon.Info);
+                }
+                if (!_busy) _status.Text = "Program Manager " + update.Release.Version + " 업데이트 가능 · 트레이 메뉴에서 업데이트 및 재시작";
+                if (manual && !_busy)
+                {
+                    install = true;
+                }
+            }
+            else if (manual && !_busy) MessageBox.Show(this, "현재 버전: " + Program.Version + "\n이 Windows에 설치할 더 새로운 버전이 없습니다.", Program.DisplayName, MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { if (manual && !IsDisposed) { _status.Text = "관리 프로그램 업데이트 확인 실패"; ShowError(ex); } }
+        finally { _checkingManager = false; }
+        if (install) await InstallManagerUpdateAsync();
+    }
+
+    private async Task InstallManagerUpdateAsync()
+    {
+        var update = _managerUpdate;
+        if (_busy || _checkingManager || update is null || IsDisposed) return;
+        ShowManager();
+        if (!UpdateInstaller.IsInstalledApplication(AppContext.BaseDirectory))
+        { ShowError(new InvalidOperationException("설치 프로그램으로 설치한 Program Manager에서 업데이트를 실행하세요.")); return; }
+        if (MessageBox.Show(this, $"Program Manager {Program.Version} → {update.Release.Version}\n{Platforms.Label(update.Release.Platform)} · {update.Source}\n\n설치 파일을 받은 뒤 관리 프로그램을 종료하고 업데이트 후 다시 실행합니다. 등록한 프로그램과 설정은 유지됩니다.\n\n업데이트할까요?", Program.DisplayName, MessageBoxButtons.OKCancel, MessageBoxIcon.Information) != DialogResult.OK) return;
+        var handedOff = false;
+        await RunAsync("관리 프로그램 업데이트 다운로드 중…", async token =>
+        {
+            var path = await _managerUpdater.DownloadAsync(update, new Progress<int>(p =>
+            {
+                if (!IsDisposed && _busy) { _progress.Style = ProgressBarStyle.Continuous; _progress.Value = Math.Max(0, Math.Min(100, p)); }
+            }), token);
+            token.ThrowIfCancellationRequested();
+            _cancel.Visible = false;
+            _status.Text = "업데이트 설치 준비 중 · 잠시 후 다시 실행됩니다.";
+            if (_server != null) await _server.StopAsync();
+            try
+            {
+                UpdateInstaller.Start(path, update.Release.Sha256, update.Release.Version, AppContext.BaseDirectory, _state.Root, Process.GetCurrentProcess().Id);
+                handedOff = true;
+            }
+            catch { await RestartHostAsync(); throw; }
+        });
+        if (handedOff) { _quitting = true; Close(); }
+    }
+
+    private void ShowManagerUpdateResult()
+    {
+        try
+        {
+            var result = UpdateInstaller.TakeResult(_state.Root);
+            if (result is null) return;
+            if (result.Status == "succeeded") _status.Text = "관리 프로그램 " + Program.Version + " 업데이트 완료";
+            else
+            {
+                _status.Text = "이전 업데이트가 완료되지 않았습니다 · 현재 " + Program.Version;
+                ShowManager();
+                MessageBox.Show(this, _status.Text + "\n" + result.Message + "\n\n설치 로그: " + result.LogPath + "\n트레이 메뉴에서 새 버전을 확인하고 다시 시도할 수 있습니다.", Program.DisplayName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        }
+        catch (Exception ex) { _status.Text = "업데이트 결과를 읽지 못했습니다: " + ex.Message; }
+    }
+
     private async Task SettingsAsync()
     {
         if (_busy) return;
@@ -568,6 +665,8 @@ internal sealed class MainForm : Form
             if (change.Disconnect) protectedPairing = "";
             var next = AppState.Clone(_state.Settings);
             next.HostEnabled = change.HostEnabled; next.Port = change.Port; next.AdvertisedHost = change.Host; next.AutoStart = change.AutoStart; next.PairingProtected = protectedPairing;
+            next.ManagerAutoCheck = change.ManagerAutoCheck;
+            _managerUpdate = null;
             _state.CommitSettings(next);
             try
             {
@@ -591,7 +690,11 @@ internal sealed class MainForm : Form
             try { await ConfigureGitHubAsync(CancellationToken.None); }
             catch (InvalidOperationException) { githubStatus = " · GitHub 로그인을 확인하세요. 보관된 파일은 계속 제공됩니다."; }
         }
-        var server = new CatalogServer(_state.Store, _identity);
+        var server = new CatalogServer(_state.Store, _identity)
+        {
+            ManagerUpdates = _managerUpdater.Store,
+            RefreshManagerUpdatesAsync = (force, token) => _managerUpdater.RefreshAsync(force, token)
+        };
         try { await server.StartAsync(_state.Settings.Port); _server = server; }
         catch { server.Dispose(); _hostStatus.Text = "호스트 시작 실패 · 포트 사용 여부와 설정을 확인하세요."; throw; }
         _hostStatus.Text = $"1. GitHub 설정 → 2. 저장소 선택 / 동기화 → 3. 연결 코드 전달\n호스트 실행 중 · {_state.Settings.AdvertisedHost}:{_state.Settings.Port}{githubStatus}";
@@ -642,7 +745,7 @@ internal sealed class MainForm : Form
     }
     protected override void Dispose(bool disposing)
     {
-        if (disposing) { _cacheTimer.Dispose(); _tray.Visible = false; _tray.ContextMenuStrip?.Dispose(); _tray.Dispose(); _server?.Dispose(); _identity?.Dispose(); _githubApi?.Dispose(); }
+        if (disposing) { _managerTimer.Dispose(); _managerLifetime.Cancel(); _cacheTimer.Dispose(); _tray.Visible = false; _tray.ContextMenuStrip?.Dispose(); _tray.Dispose(); _server?.Dispose(); _managerUpdater.Dispose(); _identity?.Dispose(); _githubApi?.Dispose(); }
         base.Dispose(disposing);
     }
 }

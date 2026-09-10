@@ -36,6 +36,8 @@ internal static class DesktopCheckRunner
             }
             Checks(root);
             CheckRecentPrograms(root);
+            ManagerUpdaterChecks.Run(root);
+            UpdateInstallerChecks.Run(root);
             Console.WriteLine("PASS: copied Windows shortcut preserves target/arguments/working directory; deletion-safe launcher; stable dedup; settings/program rollback; corrupt/null JSON rejection; platform numeric ordering; recent five history and tray dispatch; repository preflight/progress/patterns/retry/cancellation");
             return 0;
         }
@@ -53,6 +55,7 @@ internal static class DesktopCheckRunner
         Directory.CreateDirectory(outputDirectory);
         var state = new AppState(Path.Combine(root, "state"));
         var localSettings = Clone(state.Settings);
+        localSettings.ManagerAutoCheck = false;
         var sampleCatalog = new Catalog();
         var samples = new[] { ("intra-drop", "Intra Drop", "1.4.0", "1.4.1", "내부망 파일 전송 및 PC 간 공유"), ("spd-cap-injector", "SPD Cap Injector", "0.1.6", "0.1.6", "SPD 부품 번호 정리 및 커패시터 정보 편집"), ("pi-calculator", "PI Calculator", "0.22.7", "0.23.0", "전원 무결성 분석 및 디커플링 설계 검토") };
         foreach (var sample in samples)

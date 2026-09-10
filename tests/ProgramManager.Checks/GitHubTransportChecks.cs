@@ -125,7 +125,87 @@ internal static class GitHubTransportChecks
             Assert(error.Message.Contains("새로고침"), "server preparation failure returns helpful text");
         }
         await server.StopAsync();
+        await ManagerUpdateRoutingAsync(folder, identity, body);
         Console.WriteLine("PASS: GitHub transport identity/hash/snapshot, offline HTML integrity, failure cleanup, legacy compatibility and safe server errors");
+    }
+
+    private static async Task ManagerUpdateRoutingAsync(string folder, HostIdentity identity, byte[] body)
+    {
+        var regularStore = new CatalogStore(Path.Combine(folder, "regular-store"));
+        var localInstaller = Path.Combine(folder, "Regular-Setup.exe"); File.WriteAllBytes(localInstaller, body);
+        await regularStore.PublishAsync("regular-app", "Regular app", "Normal distribution", "1.0", "", localInstaller);
+        var managerRoot = Path.Combine(folder, "manager-store");
+        var source = new AssetSource(body);
+        using var api = new GitHubApi("", source);
+        var managerStore = new CatalogStore(managerRoot) { GitHub = api };
+        var release = new AppRelease { Version = "0.3.0", Platform = "win10-x64", FileName = "ProgramManager-Setup.exe", Size = body.Length, PublishedUtc = DateTimeOffset.UtcNow, GitHubAssetId = 123, GitHubTag = "v0.3.0" };
+        var app = new CatalogApp { Id = "manager-app", Name = "Program Manager", GitHubRepository = "owner/program", Releases = [release] };
+        var catalog = new Catalog { Apps = [app] };
+        var refreshes = 0;
+        var forced = false;
+        using var server = new CatalogServer(regularStore, identity)
+        {
+            ManagerUpdates = managerStore,
+            RefreshManagerUpdatesAsync = (force, token) => { token.ThrowIfCancellationRequested(); forced = force; Interlocked.Increment(ref refreshes); JsonFiles.Write(Path.Combine(managerRoot, "catalog.json"), catalog); return Task.CompletedTask; }
+        };
+        var info = identity.CreatePairing("127.0.0.1", FreePort());
+        await server.StartAsync(info.Port);
+        using var regular = new CatalogClient(info);
+        using var manager = new CatalogClient(info, managerUpdates: true);
+        var ordinary = (await regular.FetchCatalogAsync(forceManagerRefresh: true)).Apps.Single();
+        Assert(ordinary.Id == "regular-app" && refreshes == 0, "normal catalog excludes manager updates and never refreshes manager metadata");
+        var offered = (await manager.FetchCatalogAsync()).Apps.Single();
+        Assert(offered.Id == app.Id && refreshes == 1 && !forced && source.AssetRequests == 0, "automatic manager catalog refresh is not forced and requests no binaries");
+        var destination = Path.Combine(folder, "manager-downloads");
+        var downloaded = await manager.DownloadAsync(offered, offered.Releases.Single(), destination);
+        Assert(File.ReadAllBytes(downloaded).SequenceEqual(body) && refreshes == 1 && source.AssetRequests == 1, "manager package uses dedicated store and verified hash without metadata refresh");
+        await manager.DownloadAsync(offered, offered.Releases.Single(), destination);
+        Assert(refreshes == 1 && source.AssetRequests == 1, "manager package reuses verified cache");
+        await Reject(() => regular.DownloadAsync(offered, offered.Releases.Single(), destination), "normal snapshot cannot request manager package");
+        await Reject(() => manager.DownloadAsync(ordinary, ordinary.Releases.Single(), destination), "manager snapshot cannot request normal package");
+        using (var unfetched = new CatalogClient(info, managerUpdates: true)) await Reject(() => unfetched.DownloadAsync(offered, offered.Releases.Single(), destination), "manager package needs a snapshot from its own client");
+        var docsError = await Reject(() => manager.DownloadDocumentationAsync(offered, destination), "manager mode refuses documentation");
+        Assert(docsError.Message.Contains("설명 페이지"), "manager documentation rejection is explicit");
+        var wrongToken = Copy(info); wrongToken.Token = new string('0', 64);
+        using (var invalid = new CatalogClient(wrongToken, managerUpdates: true)) await Reject(() => invalid.FetchCatalogAsync(), "manager catalog requires pairing token");
+        Assert(refreshes == 1, "unauthenticated manager request never invokes upstream refresh");
+        var wrongPin = Copy(info); wrongPin.Fingerprint = new string('0', 64);
+        using (var invalid = new CatalogClient(wrongPin, managerUpdates: true)) await Reject(() => invalid.FetchCatalogAsync(), "manager catalog requires pinned certificate");
+        await manager.FetchCatalogAsync(forceManagerRefresh: true);
+        Assert(refreshes == 2 && forced, "manual manager check forces host metadata refresh");
+        await manager.FetchCatalogAsync();
+        Assert(refreshes == 3 && !forced, "automatic manager checks resume normal cached refresh policy");
+        server.ManagerUpdates = null;
+        var unavailable = await Reject(() => manager.FetchCatalogAsync(), "unconfigured manager store rejected");
+        Assert(unavailable.Message.Contains("업데이트 배포가 설정되지"), "unconfigured manager store has useful explanation");
+        await Reject(() => manager.DownloadAsync(offered, offered.Releases.Single(), destination), "manager package cannot fall back to normal store");
+        Assert((await regular.FetchCatalogAsync()).Apps.Single().Id == "regular-app", "missing manager store leaves ordinary catalog available");
+        await server.StopAsync();
+
+        // The same private snapshot and header checks apply to the manager operation prefix.
+        var actual = Copy(release); actual.Sha256 = Hash(body);
+        var package = new Header { Id = app.Id, GitHubRepository = app.GitHubRepository, Release = actual, Size = body.Length };
+        using var peer = new Peer(identity);
+        peer.Response = operation => operation == "manager-catalog" ? (new Header { Catalog = catalog }, Array.Empty<byte>()) : operation == "manager-package" ? (package, body) : throw new Exception("Unexpected manager operation: " + operation);
+        using var pinnedManager = new CatalogClient(peer.Info, managerUpdates: true);
+        var pinned = (await pinnedManager.FetchCatalogAsync()).Apps.Single();
+        foreach (var change in new Action<Header>[] { h => h.GitHubRepository = "owner/untrusted", h => h.Release!.Platform = "win7", h => h.Release!.Sha256 = new string('A', 64), h => h.Release!.GitHubAssetId++ })
+        {
+            var changed = Copy(package); change(changed); peer.Response = _ => (changed, body);
+            await Reject(() => pinnedManager.DownloadAsync(pinned, pinned.Releases.Single(), destination), "manager repo/platform/digest/asset mismatch rejected");
+        }
+        pinned.Releases[0].GitHubAssetId++;
+        var mutated = Copy(package); mutated.Release!.GitHubAssetId++;
+        peer.Response = _ => (mutated, body);
+        await Reject(() => pinnedManager.DownloadAsync(pinned, pinned.Releases.Single(), destination), "manager caller mutation cannot change pinned snapshot");
+        foreach (var errorCode in new[] { "unsupported_request", "" })
+        {
+            peer.Response = _ => (new Header { ErrorCode = errorCode, Error = "지원하지 않는 요청입니다." }, Array.Empty<byte>());
+            var oldHost = await Reject(() => pinnedManager.FetchCatalogAsync(), "old host has no manager update endpoint");
+            Assert(oldHost.Message.Contains("호스트") && oldHost.Message.Contains("0.3.0"), "0.2 and 0.1 host errors explain minimum manager version");
+        }
+        Assert(File.ReadAllBytes(downloaded).SequenceEqual(body) && !Directory.GetFiles(destination, "*.part").Any(), "manager failures preserve verified installer and remove partial files");
+        Console.WriteLine("PASS: isolated manager update routes, authenticated refresh, snapshot/hash verification, missing and older host errors");
     }
 
     private sealed class AssetSource(byte[] body) : HttpMessageHandler
@@ -148,6 +228,8 @@ internal static class GitHubTransportChecks
     {
         public int Protocol { get; set; } = 1;
         public string Operation { get; set; } = "";
+        public string ErrorCode { get; set; } = "";
+        public string Error { get; set; } = "";
         public string Id { get; set; } = "";
         public string GitHubRepository { get; set; } = "";
         public long Size { get; set; }
@@ -239,7 +321,7 @@ internal static class GitHubTransportChecks
     private static async Task<Exception> Reject(Func<Task> action, string message)
     {
         try { await action(); }
-        catch (Exception ex) when (ex is IOException or InvalidDataException or InvalidOperationException or OperationCanceledException or ObjectDisposedException or SocketException) { return ex; }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or InvalidOperationException or OperationCanceledException or ObjectDisposedException or SocketException or AuthenticationException) { return ex; }
         throw new Exception("FAIL: should reject " + message);
     }
     private sealed class ProgressCallback(Action<int> callback) : IProgress<int> { public void Report(int value) => callback(value); }

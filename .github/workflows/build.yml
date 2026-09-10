@@ -11,8 +11,26 @@ permissions:
 jobs:
   windows:
     runs-on: windows-2022
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      commit: ${{ steps.version.outputs.commit }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Read version and validate release tag
+        id: version
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          [xml]$project = Get-Content -LiteralPath 'src/ProgramManager/ProgramManager.csproj'
+          $version = [string]$project.SelectSingleNode('/Project/PropertyGroup/Version').InnerText
+          if ($version -notmatch '^\d+\.\d+\.\d+(?:\.\d+)?$') { throw 'The project must have a numeric release version.' }
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -cne "v$version") { throw 'The release tag does not match the project version.' }
+          $commit = git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot resolve the build commit.' }
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "commit=$commit" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
@@ -21,7 +39,51 @@ jobs:
         run: ./tools/build.ps1
       - uses: actions/upload-artifact@v4
         with:
-          name: ProgramManager-0.2.2-installers
-          path: artifacts/installers/*
+          name: ProgramManager-${{ steps.version.outputs.version }}-installers
+          path: |
+            artifacts/installers/ProgramManager-Setup-${{ steps.version.outputs.version }}.exe
+            artifacts/installers/ProgramManager-Setup-${{ steps.version.outputs.version }}-win7.exe
+            artifacts/installers/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 14
+
+  release:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && github.repository == 'yunhyok/ProgramManager'
+    needs: windows
+    runs-on: windows-2022
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ProgramManager-${{ needs.windows.outputs.version }}-installers
+          path: artifacts/installers
+      - name: Verify and publish the tagged installers
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_VERSION: ${{ needs.windows.outputs.version }}
+          RELEASE_COMMIT: ${{ needs.windows.outputs.commit }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:RELEASE_TAG -cne "v$env:RELEASE_VERSION") { throw 'The release tag does not match the built version.' }
+          $tagCommit = gh api "repos/$env:GH_REPO/commits/$env:RELEASE_TAG" --jq .sha
+          if ($LASTEXITCODE -ne 0 -or $tagCommit -cne $env:RELEASE_COMMIT) { throw 'The remote tag no longer points to the build commit.' }
+          $installerRoot = Join-Path $env:GITHUB_WORKSPACE 'artifacts/installers'
+          $manifest = Join-Path $installerRoot 'SHA256SUMS.txt'
+          $hashes = @{}
+          foreach ($line in Get-Content -LiteralPath $manifest) {
+            if ($line -notmatch '^([a-fA-F0-9]{64})  (.+)$' -or $hashes.ContainsKey($Matches[2])) { throw 'Invalid or duplicate installer hash entry.' }
+            $hashes[$Matches[2]] = $Matches[1]
+          }
+          if ($hashes.Count -ne 2) { throw 'Exactly two installer hashes are required.' }
+          $assets = foreach ($name in @("ProgramManager-Setup-$env:RELEASE_VERSION.exe", "ProgramManager-Setup-$env:RELEASE_VERSION-win7.exe")) {
+            $path = Join-Path $installerRoot $name
+            if (!$hashes.ContainsKey($name) -or (Get-Item -LiteralPath $path).Length -eq 0 -or (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -ine $hashes[$name]) { throw "Installer verification failed: $name" }
+            $path
+          }
+          $assets += $manifest
+          gh release create $env:RELEASE_TAG @assets --verify-tag --target $env:RELEASE_COMMIT --title "Program Manager $env:RELEASE_VERSION" --generate-notes
+          if ($LASTEXITCODE -ne 0) { throw 'Release publication failed.' }

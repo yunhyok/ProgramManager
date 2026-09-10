@@ -21,6 +21,8 @@
     <Compile Include="$(UiSourceDirectory)/Ui.cs" Link="Ui.cs" />
     <Compile Include="../../src/ProgramManager/GitHubDialogs.cs" Link="GitHubDialogs.cs" />
     <Compile Include="../../src/ProgramManager/GitHubCredentials.cs" Link="GitHubCredentials.cs" />
+    <Compile Include="../../src/ProgramManager/ManagerUpdater.cs" Link="ManagerUpdater.cs" />
+    <Compile Include="../../src/ProgramManager/UpdateInstaller.cs" Link="UpdateInstaller.cs" />
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="All" Condition="'$(TargetFramework)' == 'net48'" />
   </ItemGroup>
   <ItemGroup>

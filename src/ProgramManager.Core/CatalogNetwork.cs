@@ -23,6 +23,7 @@ internal sealed class WireMessage
     public string Error { get; set; } = "";
     public string ErrorCode { get; set; } = "";
     public int Capabilities { get; set; }
+    public bool ForceManagerRefresh { get; set; }
     public string GitHubRepository { get; set; } = "";
     public string Sha256 { get; set; } = "";
     public long Size { get; set; }
@@ -77,6 +78,8 @@ public sealed class CatalogServer : IDisposable
     private CancellationTokenSource? lifetime;
     private TcpListener? listener;
     private Task? accepting;
+    public CatalogStore? ManagerUpdates { get; set; }
+    public Func<bool, CancellationToken, Task>? RefreshManagerUpdatesAsync { get; set; }
 
     public CatalogServer(CatalogStore store, HostIdentity identity) { this.store = store; this.identity = identity; }
 
@@ -135,22 +138,39 @@ public sealed class CatalogServer : IDisposable
                 var responseStarted = false;
                 try
                 {
-                    if (request.Operation == "catalog")
+                    var requestedStore = store;
+                    if (request.Operation is "manager-catalog" or "manager-package")
                     {
-                        var catalog = store.Read();
+                        var managerStore = ManagerUpdates;
+                        if (managerStore is null)
+                        {
+                            await Wire.WriteAsync(tls, new WireMessage { ErrorCode = "manager_updates_unavailable", Error = "호스트에서 Program Manager 업데이트 배포가 설정되지 않았습니다. 호스트의 업데이트 설정을 확인하세요." }, deadline.Token).ConfigureAwait(false);
+                            return;
+                        }
+                        requestedStore = managerStore;
+                        if (request.Operation == "manager-catalog")
+                        {
+                            deadline.CancelAfter(TimeSpan.FromMinutes(3));
+                            var refresh = RefreshManagerUpdatesAsync;
+                            if (refresh != null) await refresh(request.ForceManagerRefresh, deadline.Token).ConfigureAwait(false);
+                        }
+                    }
+                    if (request.Operation is "catalog" or "manager-catalog")
+                    {
+                        var catalog = requestedStore.Read();
                         if (request.Capabilities < 1 && catalog.Apps.Any(a => !string.IsNullOrEmpty(a.GitHubRepository)))
                             await Wire.WriteAsync(tls, new WireMessage { ErrorCode = "client_update_required", Error = "GitHub 배포 목록을 사용하려면 클라이언트 Program Manager를 0.2.0 이상으로 업데이트하세요." }, deadline.Token).ConfigureAwait(false);
                         else await Wire.WriteAsync(tls, new WireMessage { Capabilities = 1, Catalog = catalog }, deadline.Token).ConfigureAwait(false);
                     }
-                    else if (request.Operation == "package")
+                    else if (request.Operation is "package" or "manager-package")
                     {
-                        var app = store.Read().Apps.SingleOrDefault(a => a.Id == request.Id) ?? throw new FileNotFoundException();
+                        var app = requestedStore.Read().Apps.SingleOrDefault(a => a.Id == request.Id) ?? throw new FileNotFoundException();
                         if (request.Capabilities < 1 && !string.IsNullOrEmpty(app.GitHubRepository))
                         {
                             await Wire.WriteAsync(tls, new WireMessage { ErrorCode = "client_update_required", Error = "GitHub 설치 파일을 받으려면 클라이언트 Program Manager를 0.2.0 이상으로 업데이트하세요." }, deadline.Token).ConfigureAwait(false);
                             return;
                         }
-                        using var package = await store.PreparePackageAsync(request.Id, request.Version, request.Platform, deadline.Token).ConfigureAwait(false);
+                        using var package = await requestedStore.PreparePackageAsync(request.Id, request.Version, request.Platform, deadline.Token).ConfigureAwait(false);
                         var release = package.Release;
                         var header = new WireMessage
                         {
@@ -217,19 +237,26 @@ public sealed class CatalogServer : IDisposable
 public sealed class CatalogClient : IDisposable
 {
     private readonly PairingInfo info;
+    private readonly bool managerUpdates;
+    private readonly string operationPrefix;
     private readonly CancellationTokenSource lifetime = new();
     private Catalog? snapshot;
 
-    public CatalogClient(PairingInfo info) => this.info = PairingInfo.Parse(info.Export());
+    public CatalogClient(PairingInfo info, bool managerUpdates = false)
+    {
+        this.info = PairingInfo.Parse(info.Export());
+        this.managerUpdates = managerUpdates;
+        operationPrefix = managerUpdates ? "manager-" : "";
+    }
 
-    public async Task<Catalog> FetchCatalogAsync(CancellationToken token = default)
+    public async Task<Catalog> FetchCatalogAsync(CancellationToken token = default, bool forceManagerRefresh = false)
     {
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token, lifetime.Token);
-        deadline.CancelAfter(TimeSpan.FromSeconds(30));
+        deadline.CancelAfter(managerUpdates ? TimeSpan.FromMinutes(3) : TimeSpan.FromSeconds(30));
         using var client = new TcpClient();
         using var close = deadline.Token.Register(client.Close);
         using var tls = await ConnectAsync(client, deadline.Token).ConfigureAwait(false);
-        await Wire.WriteAsync(tls, new WireMessage { Operation = "catalog", Token = info.Token, Capabilities = 1 }, deadline.Token).ConfigureAwait(false);
+        await Wire.WriteAsync(tls, new WireMessage { Operation = operationPrefix + "catalog", Token = info.Token, Capabilities = 1, ForceManagerRefresh = managerUpdates && forceManagerRefresh }, deadline.Token).ConfigureAwait(false);
         var response = await Wire.ReadAsync(tls, CatalogRules.MaxCatalogBytes, deadline.Token).ConfigureAwait(false);
         CheckResponse(response);
         var catalog = CatalogRules.Validate(response.Catalog!);
@@ -255,14 +282,14 @@ public sealed class CatalogClient : IDisposable
         try
         {
             using var tls = await ConnectAsync(client, deadline.Token).ConfigureAwait(false);
-            await Wire.WriteAsync(tls, new WireMessage { Operation = "package", Token = info.Token, Capabilities = 1, Id = app.Id, Version = version, Platform = trusted.Platform }, deadline.Token).ConfigureAwait(false);
+            await Wire.WriteAsync(tls, new WireMessage { Operation = operationPrefix + "package", Token = info.Token, Capabilities = 1, Id = app.Id, Version = version, Platform = trusted.Platform }, deadline.Token).ConfigureAwait(false);
             var response = await Wire.ReadAsync(tls, 65536, deadline.Token).ConfigureAwait(false);
             CheckResponse(response);
             var actual = response.Release;
             if (actual is null)
             {
                 // A pre-GitHub host is still valid for a catalog with a known digest.
-                if (!string.IsNullOrEmpty(trustedApp.GitHubRepository) || !IsSha256(trusted.Sha256))
+                if (managerUpdates || !string.IsNullOrEmpty(trustedApp.GitHubRepository) || !IsSha256(trusted.Sha256))
                     throw new InvalidDataException("호스트를 업데이트한 뒤 배포 목록을 새로고침하세요.");
                 actual = trusted;
             }
@@ -285,6 +312,7 @@ public sealed class CatalogClient : IDisposable
 
     public async Task<string> DownloadDocumentationAsync(CatalogApp app, string destination, CancellationToken token = default)
     {
+        if (managerUpdates) throw new InvalidOperationException("Program Manager 업데이트 연결에서는 설명 페이지를 받을 수 없습니다. 프로그램의 도움말을 이용하세요.");
         CatalogRules.Id(app.Id);
         var trusted = TrustedApp(app.Id);
         destination = Path.GetFullPath(destination);
@@ -360,8 +388,10 @@ public sealed class CatalogClient : IDisposable
         catch { tls.Dispose(); throw; }
     }
 
-    private static void CheckResponse(WireMessage response)
+    private void CheckResponse(WireMessage response)
     {
+        if (managerUpdates && (response.ErrorCode == "unsupported_request" || (response.ErrorCode == "" && response.Error == "지원하지 않는 요청입니다.")))
+            throw new InvalidOperationException("호스트 Program Manager를 0.3.0 이상으로 업데이트한 뒤 다시 확인하세요.");
         if (!string.IsNullOrEmpty(response.Error))
         {
             CatalogRules.Text(response.Error, 2000);

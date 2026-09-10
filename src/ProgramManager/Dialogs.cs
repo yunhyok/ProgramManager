@@ -150,7 +150,7 @@ internal static class Dialogs
 
     public sealed class SettingsChange
     {
-        public bool HostEnabled, AutoStart, Disconnect;
+        public bool HostEnabled, AutoStart, Disconnect, ManagerAutoCheck;
         public int Port;
         public string Host = "", NewPairing = "";
     }
@@ -169,6 +169,8 @@ internal static class Dialogs
         role.SelectedIndexChanged += (_, _) => host.Enabled = port.Enabled = role.SelectedIndex == 1;
         var auto = new CheckBox { Text = "로그인 시 자동 실행", AutoSize = true, Checked = state.Settings.AutoStart };
         form.Row("시작 옵션", auto);
+        var managerAuto = new CheckBox { Text = "새 버전 자동 확인 (시작 시 / 6시간마다)", AutoSize = true, Checked = state.Settings.ManagerAutoCheck };
+        form.Row("관리 프로그램 업데이트", managerAuto);
         form.Row("연결된 배포 호스트", Ui.Label(state.Pairing is PairingInfo current ? current.Host + ":" + current.Port : "연결 안 됨", 9));
         var pairing = form.TextField("새 호스트 연결 코드", "", true);
         form.Row("연결 방법", new Label { AutoSize = true, MaximumSize = new Size(410, 0), Text = "배포 호스트의 ‘연결 코드’에서 복사한 코드를 붙여 넣으세요. 비워 두면 기존 연결을 유지합니다. 코드는 신뢰하는 PC에만 전달하세요." });
@@ -180,7 +182,7 @@ internal static class Dialogs
             if (string.IsNullOrWhiteSpace(host.Text)) throw new InvalidDataException("호스트 PC 이름 또는 IP를 입력하세요.");
             if (pairing.Text.Trim().Length > 0) PairingInfo.Parse(pairing.Text.Trim());
             if (disconnect.Checked && pairing.Text.Trim().Length > 0) throw new InvalidDataException("새 연결 또는 연결 해제 중 하나만 선택하세요.");
-            result = new SettingsChange { HostEnabled = role.SelectedIndex == 1, Host = host.Text.Trim(), Port = (int)port.Value, AutoStart = auto.Checked, NewPairing = pairing.Text.Trim(), Disconnect = disconnect.Checked };
+            result = new SettingsChange { HostEnabled = role.SelectedIndex == 1, Host = host.Text.Trim(), Port = (int)port.Value, AutoStart = auto.Checked, NewPairing = pairing.Text.Trim(), Disconnect = disconnect.Checked, ManagerAutoCheck = managerAuto.Checked };
         });
         return form.ShowDialog(owner) == DialogResult.OK ? result : null;
     }
