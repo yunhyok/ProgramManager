@@ -151,7 +151,7 @@ internal sealed class LayoutCheck
         if (!condition) { _failures.Add(prefix + ": " + message); Console.WriteLine("LAYOUT FAIL " + prefix + ": " + message); }
     }
     private static string Short(string text) => text.Replace("\r", " ").Replace("\n", " ").Substring(0, Math.Min(text.Length, 45));
-    private static IEnumerable<Control> Descendants(Control control)
+    internal static IEnumerable<Control> Descendants(Control control)
     {
         yield return control;
         foreach (Control child in control.Controls)

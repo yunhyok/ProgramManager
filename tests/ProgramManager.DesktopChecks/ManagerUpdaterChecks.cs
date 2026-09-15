@@ -65,7 +65,12 @@ internal static class ManagerUpdaterChecks
         using var identity = HostIdentity.LoadOrCreate(Path.Combine(root, "combined-identity"));
         var listener = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0); listener.Start();
         var port = ((IPEndPoint)listener.LocalEndpoint).Port; listener.Stop();
-        using var server = new CatalogServer(store, identity) { ManagerUpdates = updater.Store, RefreshManagerUpdatesAsync = (force, token) => updater.RefreshAsync(force, token) };
+        var catalogRefreshes = 0;
+        using var server = new CatalogServer(store, identity)
+        {
+            ManagerUpdates = updater.Store, RefreshManagerUpdatesAsync = (force, token) => updater.RefreshAsync(force, token),
+            RefreshCatalogAsync = _ => { Interlocked.Increment(ref catalogRefreshes); return Task.FromResult(""); }
+        };
         Task.Run(() => server.StartAsync(port)).GetAwaiter().GetResult();
         var state = new AppState(Path.Combine(root, "combined-client"));
         var settings = AppState.Clone(state.Settings);
@@ -87,6 +92,7 @@ internal static class ManagerUpdaterChecks
         Assert(menu.Items.Cast<ToolStripItem>().Any(i => i.Text == "업데이트 확인 중…" && !i.Enabled), "combined check prevents duplicate clicks");
         WaitFor("_checkingUpdates");
         Assert(state.Cache.Catalog.Apps.Single().Id == "example" && source.Releases > 0 && source.Assets == 0, "one tray action fetches both catalogs without downloading installers");
+        Assert(catalogRefreshes == 1, "actual client refresh requests host GitHub synchronization");
         Assert(CatalogRules.Version(((ManagerUpdate)typeof(MainForm).GetField("_managerUpdate", flags)!.GetValue(form)!).Release.Version) == CatalogRules.Version("0.10.0"), "new self version remains selectable without starting installation");
         var tray = (NotifyIcon)typeof(MainForm).GetField("_tray", flags)!.GetValue(form)!;
         Assert(tray.Text.Contains("업데이트 1개") && tray.Icon != form.Icon, "self updates share the badge and count");

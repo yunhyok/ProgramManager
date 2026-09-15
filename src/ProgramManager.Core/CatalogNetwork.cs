@@ -24,6 +24,8 @@ internal sealed class WireMessage
     public string ErrorCode { get; set; } = "";
     public int Capabilities { get; set; }
     public bool ForceManagerRefresh { get; set; }
+    public bool RefreshCatalog { get; set; }
+    public string RefreshWarning { get; set; } = "";
     public string GitHubRepository { get; set; } = "";
     public string Sha256 { get; set; } = "";
     public long Size { get; set; }
@@ -80,6 +82,25 @@ public sealed class CatalogServer : IDisposable
     private Task? accepting;
     public CatalogStore? ManagerUpdates { get; set; }
     public Func<bool, CancellationToken, Task>? RefreshManagerUpdatesAsync { get; set; }
+    public Func<CancellationToken, Task<string>>? RefreshCatalogAsync { get; set; }
+    private readonly object refreshLock = new();
+    private Task<string>? catalogRefresh;
+
+    private Task<string> RefreshPublishedCatalogAsync(CancellationToken token)
+    {
+        // Concurrent clients share the current refresh; the next request starts a fresh one.
+        lock (refreshLock)
+            return catalogRefresh is { IsCompleted: false } ? catalogRefresh : catalogRefresh = RefreshPublishedCatalogCoreAsync(token);
+    }
+
+    private async Task<string> RefreshPublishedCatalogCoreAsync(CancellationToken token)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+        timeout.CancelAfter(TimeSpan.FromSeconds(150));
+        try { return RefreshCatalogAsync is { } refresh ? await refresh(timeout.Token).ConfigureAwait(false) : ""; }
+        catch (Exception ex) when (!token.IsCancellationRequested && ex is HttpRequestException or IOException or InvalidDataException or InvalidOperationException or UnauthorizedAccessException or OperationCanceledException)
+        { return "호스트에서 GitHub 최신 목록을 확인하지 못했습니다. 보관된 배포 목록을 표시합니다. 호스트의 인터넷 연결과 GitHub 설정을 확인하세요."; }
+    }
 
     public CatalogServer(CatalogStore store, HostIdentity identity) { this.store = store; this.identity = identity; }
 
@@ -157,10 +178,12 @@ public sealed class CatalogServer : IDisposable
                     }
                     if (request.Operation is "catalog" or "manager-catalog")
                     {
+                        var warning = request.Operation == "catalog" && request.RefreshCatalog
+                            ? await RefreshPublishedCatalogAsync(token).ConfigureAwait(false) : "";
                         var catalog = requestedStore.Read();
                         if (request.Capabilities < 1 && catalog.Apps.Any(a => !string.IsNullOrEmpty(a.GitHubRepository)))
                             await Wire.WriteAsync(tls, new WireMessage { ErrorCode = "client_update_required", Error = "GitHub 배포 목록을 사용하려면 클라이언트 Program Manager를 0.2.0 이상으로 업데이트하세요." }, deadline.Token).ConfigureAwait(false);
-                        else await Wire.WriteAsync(tls, new WireMessage { Capabilities = 1, Catalog = catalog }, deadline.Token).ConfigureAwait(false);
+                        else await Wire.WriteAsync(tls, new WireMessage { Capabilities = 1, Catalog = catalog, RefreshWarning = warning }, deadline.Token).ConfigureAwait(false);
                     }
                     else if (request.Operation is "package" or "manager-package")
                     {
@@ -241,6 +264,7 @@ public sealed class CatalogClient : IDisposable
     private readonly string operationPrefix;
     private readonly CancellationTokenSource lifetime = new();
     private Catalog? snapshot;
+    public string RefreshWarning { get; private set; } = "";
 
     public CatalogClient(PairingInfo info, bool managerUpdates = false)
     {
@@ -249,18 +273,20 @@ public sealed class CatalogClient : IDisposable
         operationPrefix = managerUpdates ? "manager-" : "";
     }
 
-    public async Task<Catalog> FetchCatalogAsync(CancellationToken token = default, bool forceManagerRefresh = false)
+    public async Task<Catalog> FetchCatalogAsync(CancellationToken token = default, bool forceManagerRefresh = false, bool refreshCatalog = false)
     {
+        RefreshWarning = "";
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token, lifetime.Token);
-        deadline.CancelAfter(managerUpdates ? TimeSpan.FromMinutes(3) : TimeSpan.FromSeconds(30));
+        deadline.CancelAfter(managerUpdates || refreshCatalog ? TimeSpan.FromMinutes(3) : TimeSpan.FromSeconds(30));
         using var client = new TcpClient();
         using var close = deadline.Token.Register(client.Close);
         using var tls = await ConnectAsync(client, deadline.Token).ConfigureAwait(false);
-        await Wire.WriteAsync(tls, new WireMessage { Operation = operationPrefix + "catalog", Token = info.Token, Capabilities = 1, ForceManagerRefresh = managerUpdates && forceManagerRefresh }, deadline.Token).ConfigureAwait(false);
+        await Wire.WriteAsync(tls, new WireMessage { Operation = operationPrefix + "catalog", Token = info.Token, Capabilities = 1, ForceManagerRefresh = managerUpdates && forceManagerRefresh, RefreshCatalog = !managerUpdates && refreshCatalog }, deadline.Token).ConfigureAwait(false);
         var response = await Wire.ReadAsync(tls, CatalogRules.MaxCatalogBytes, deadline.Token).ConfigureAwait(false);
         CheckResponse(response);
         var catalog = CatalogRules.Validate(response.Catalog!);
         snapshot = JsonSerializer.Deserialize<Catalog>(JsonSerializer.SerializeToUtf8Bytes(catalog))!;
+        RefreshWarning = response.RefreshWarning ?? "";
         return catalog;
     }
 

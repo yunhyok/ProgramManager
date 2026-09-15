@@ -48,6 +48,7 @@ internal static class DesktopCheckRunner
                 return 0;
             }
             Checks(root);
+            CheckCatalogActions(root);
             CheckRecentPrograms(root);
             ManagerUpdaterChecks.Run(root);
             UpdateInstallerChecks.Run(root);
@@ -63,6 +64,42 @@ internal static class DesktopCheckRunner
             if (!full.StartsWith(Path.GetFullPath(Path.GetTempPath()), StringComparison.OrdinalIgnoreCase) || !Path.GetFileName(full).StartsWith("ProgramManagerDesktopChecks-")) throw new InvalidOperationException("Unexpected test path");
             Directory.Delete(full, true);
         }
+    }
+
+    private static void CheckCatalogActions(string root)
+    {
+        var state = new AppState(Path.Combine(root, "catalog-actions"));
+        state.Settings.ManagerAutoCheck = state.Settings.AppAutoCheck = false;
+        using var form = new MainForm(state, false);
+        var flags = BindingFlags.Instance | BindingFlags.NonPublic;
+        var tabs = (TabControl)typeof(MainForm).GetField("_tabs", flags)!.GetValue(form)!;
+        var render = typeof(MainForm).GetMethod("Render", flags)!;
+        Assert(tabs.TabCount == 2 && tabs.TabPages.Cast<TabPage>().All(p => p.Text != "호스트 관리"), "client role hides the host tab and all its controls");
+        state.Settings.HostEnabled = true; render.Invoke(form, null);
+        Assert(tabs.TabCount == 3 && tabs.TabPages[2].Text == "호스트 관리", "host role restores host controls");
+        tabs.SelectedIndex = 2;
+        state.Settings.HostEnabled = false; render.Invoke(form, null);
+        Assert(tabs.TabCount == 2 && tabs.SelectedIndex >= 0, "switching from the selected host tab leaves a usable client page");
+        var app = new CatalogApp { Id = "actions", Name = "Actions", Releases = [new AppRelease { Version = "2.0", Platform = Platforms.Current }] };
+        typeof(MainForm).GetField("_remote", flags)!.SetValue(form, new Catalog { Apps = [app] });
+        render.Invoke(form, null);
+        var install = LayoutCheck.Descendants(form).OfType<Button>().Single(b => b.Text == "설치 / 업데이트");
+        var platform = (ComboBox)typeof(MainForm).GetField("_platform", flags)!.GetValue(form)!;
+        var search = (TextBox)typeof(MainForm).GetField("_search", flags)!.GetValue(form)!;
+        var run = typeof(MainForm).GetMethod("RunAsync", flags)!;
+        foreach (var fail in new[] { false, true })
+        {
+            Func<CancellationToken, Task> work = _ => { render.Invoke(form, null); return fail ? Task.FromException(new IOException("fixture failure")) : Task.CompletedTask; };
+            var result = (Task<bool>)run.Invoke(form, new object[] { "fixture refresh", work, false })!;
+            Assert(result.GetAwaiter().GetResult() == !fail && install.Enabled, "install action recovers after success/failure while parent was disabled");
+        }
+        var original = platform.SelectedIndex; platform.SelectedIndex = 1 - original;
+        Assert(!install.Enabled, "incompatible Windows installer stays disabled");
+        platform.SelectedIndex = original; Assert(install.Enabled, "compatible selection re-enables install");
+        search.Text = "missing"; Assert(!install.Enabled, "empty search disables install");
+        search.Clear(); Assert(install.Enabled, "clearing search restores install");
+        app.Releases.Clear(); render.Invoke(form, null); Assert(!install.Enabled, "missing installer stays disabled");
+        Console.WriteLine("PASS: client-only UI, role changes, and install action recovery after refresh/failure/filter/platform changes");
     }
 
     private static void Render(string root, string outputDirectory, LayoutCheck? layout = null)
@@ -93,6 +130,8 @@ internal static class DesktopCheckRunner
         var busyField = typeof(MainForm).GetField("_busy", BindingFlags.Instance | BindingFlags.NonPublic)!;
         while ((bool)busyField.GetValue(form)! && DateTime.UtcNow < startupDeadline) { Application.DoEvents(); Thread.Sleep(1); }
         Assert(!(bool)busyField.GetValue(form)!, "startup inventory finishes before populated layout inspection");
+        state.Settings.HostEnabled = true; // Include host layout without opening a real listener.
+        typeof(MainForm).GetMethod("Render", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(form, null);
         layout?.Prepare(form);
         var flags = BindingFlags.Instance | BindingFlags.NonPublic;
         typeof(MainForm).GetField("_remote", flags)!.SetValue(form, sampleCatalog);
@@ -111,6 +150,15 @@ internal static class DesktopCheckRunner
             var path = Path.GetFullPath(Path.Combine(outputDirectory, "program-manager-" + new[] { "local", "catalog", "host" }[index] + ".png"));
             bitmap.Save(path, System.Drawing.Imaging.ImageFormat.Png);
             Console.WriteLine(path);
+        }
+        state.Settings.HostEnabled = false;
+        typeof(MainForm).GetMethod("Render", flags)!.Invoke(form, null);
+        tabs.SelectedIndex = 1; form.PerformLayout(); Application.DoEvents();
+        layout?.Inspect(form, "client-only");
+        using (var bitmap = new Bitmap(form.Width, form.Height))
+        {
+            form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, form.Size));
+            bitmap.Save(Path.Combine(outputDirectory, "program-manager-client-only.png"));
         }
         foreach (var dialogName in new[] { "register", "github-settings", "repositories", "sync-result", "settings", "settings-host", "settings-client", "history", "help" })
         {
@@ -150,7 +198,7 @@ internal static class DesktopCheckRunner
                 {
                     var browser = dialog.Controls.OfType<WebBrowser>().Single();
                     if (browser.ReadyState != WebBrowserReadyState.Complete) return;
-                    Assert(browser.Document?.GetElementById("host") != null && browser.Document?.Body?.InnerText?.Contains("GitHub") == true && browser.Url?.Fragment == "#host", "installed HTML viewer loads real guide and selected section without browser association");
+                    Assert(browser.Document?.GetElementById("client") != null && browser.Document?.Body?.InnerText?.Contains("GitHub") == true && browser.Url?.Fragment == "#client", "installed HTML viewer loads real guide and selected client section without browser association");
                     browser.Navigate("https://example.invalid/");
                     Assert(browser.Url?.IsFile == true, "offline viewer blocks external navigation");
                 }

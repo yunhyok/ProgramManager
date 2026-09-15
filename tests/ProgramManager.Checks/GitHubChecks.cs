@@ -11,6 +11,7 @@ internal static class GitHubChecks
     {
         await AtomicReplaceAsync(root);
         await PartialSyncAsync(root);
+        await ClientRefreshAsync(root);
         var source = new FakeGitHub();
         using var api = new GitHubApi("fixture-secret", source);
         var store = new CatalogStore(Path.Combine(root, "github-cache")) { GitHub = api };
@@ -185,6 +186,56 @@ internal static class GitHubChecks
         var aliases = await new CatalogStore(Path.Combine(root, "alias-catalog")) { GitHub = api }.RefreshGitHubAsync(new[] { new GitHubSelection { Repository = "owner/good" }, new GitHubSelection { Repository = "owner/alias" } });
         Check(aliases.Catalog.Apps.Count == 1 && aliases.Checks.Count(c => c.Error != "") == 1, "canonical repository alias conflict does not abort healthy publication");
         Console.WriteLine("PASS: per-repository preflight, partial sync, retained failures, progress, cancellation and atomic commit preservation");
+    }
+
+    private static async Task ClientRefreshAsync(string root)
+    {
+        var handler = new SyncGitHub();
+        using var source = new GitHubApi("fixture-secret", handler);
+        var store = new CatalogStore(Path.Combine(root, "client-refresh")) { GitHub = source };
+        var selected = new[] { new GitHubSelection { Repository = "owner/good" } };
+        await store.RefreshGitHubAsync(selected);
+        using var identity = HostIdentity.LoadOrCreate(Path.Combine(root, "refresh-identity"));
+        var portProbe = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
+        portProbe.Start(); var port = ((IPEndPoint)portProbe.LocalEndpoint).Port; portProbe.Stop();
+        var refreshes = 0;
+        var entered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var server = new CatalogServer(store, identity)
+        {
+            RefreshCatalogAsync = async token =>
+            {
+                Interlocked.Increment(ref refreshes); entered.TrySetResult(true); await release.Task;
+                var result = await store.RefreshGitHubAsync(selected, token);
+                return result.Checks.Any(c => c.App is null) ? "GitHub 확인 실패 · 이전 배포 정보 유지" : "";
+            }
+        };
+        await server.StartAsync(port);
+        var pairing = identity.CreatePairing("127.0.0.1", port);
+        using var client = new CatalogClient(pairing);
+        handler.Version = "2.0";
+        Check((await client.FetchCatalogAsync()).Apps.Single().Latest!.Version == "1.0" && refreshes == 0, "connection/package snapshot fetch skips upstream sync");
+        var wrong = PairingInfo.Parse(pairing.Export()); wrong.Token = new string('0', 64);
+        using (var invalid = new CatalogClient(wrong)) await Reject(() => invalid.FetchCatalogAsync(refreshCatalog: true), "refresh requires host authentication");
+        Check(refreshes == 0, "unauthenticated refresh cannot access GitHub");
+        var first = client.FetchCatalogAsync(refreshCatalog: true);
+        Check(await Task.WhenAny(entered.Task, Task.Delay(5000)) == entered.Task, "client refresh reaches host callback");
+        using var secondClient = new CatalogClient(pairing);
+        var second = secondClient.FetchCatalogAsync(refreshCatalog: true);
+        await Task.Delay(300); release.SetResult(true);
+        var catalogs = await Task.WhenAll(first, second);
+        Check(refreshes == 1 && catalogs.All(c => c.Apps.Single().Latest!.Version == "2.0"), "concurrent clients share a sync and receive new GitHub version");
+        handler.Version = "3.0";
+        Check((await client.FetchCatalogAsync(refreshCatalog: true)).Apps.Single().Latest!.Version == "3.0" && refreshes == 2, "subsequent explicit refresh queries GitHub again");
+        handler.Modes["good"] = "missing";
+        Check((await client.FetchCatalogAsync(refreshCatalog: true)).Apps.Single().Latest!.Version == "3.0" && client.RefreshWarning.Length > 0, "failed repository retains previous catalog with visible warning");
+        store.GitHub = null;
+        Check((await client.FetchCatalogAsync(refreshCatalog: true)).Apps.Single().Latest!.Version == "3.0" && client.RefreshWarning.Length > 0, "host configuration failure returns usable cached catalog");
+        store.GitHub = source; handler.Modes["good"] = "good";
+        await client.FetchCatalogAsync(refreshCatalog: true);
+        Check(client.RefreshWarning == "" && handler.AssetRequests == 0, "successful retry clears warning without downloading installers");
+        await server.StopAsync();
+        Console.WriteLine("PASS: authenticated client-triggered GitHub sync, concurrent requests, fresh versions, offline fallback and metadata-only refresh");
     }
 
     private sealed class SyncProgress(Action<GitHubSyncProgress> report) : IProgress<GitHubSyncProgress>

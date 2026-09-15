@@ -35,7 +35,8 @@ internal sealed class MainForm : Form
     private readonly ManagerUpdater _managerUpdater;
     private ManagerUpdate? _managerUpdate;
     private bool _checkingManager, _checkingUpdates;
-    private readonly Button _enableHost;
+    private readonly TabPage _hostPage;
+    private string _catalogWarning = "";
     private CancellationTokenSource? _operation;
     private bool _busy, _quitting, _settingsOpen;
 
@@ -109,15 +110,16 @@ internal sealed class MainForm : Form
             var app = Selected<CatalogApp>(_catalog);
             offlineHelp.Enabled = app != null;
             link.Enabled = app != null && TargetPlatform == Platforms.Current;
-            install.Enabled = link.Enabled && Platforms.Latest(app!, TargetPlatform) != null;
+            // Enabled reads include the temporarily disabled parent during refresh.
+            install.Enabled = app != null && TargetPlatform == Platforms.Current && Platforms.Latest(app, TargetPlatform) != null;
         };
         _tabs.TabPages.Add(Page("배포 카탈로그", Ui.Bar(Ui.Button("연결 설정", async (_, _) => await SettingsAsync("client")), _platform, install, link, offlineHelp), catalogPane, _receiveStatus));
         var history = Ui.Button("설명 / 이력", (_, _) => ShowHostHistory());
         var hostHelp = Ui.Button("오프라인 설명", async (_, _) => await OpenDocumentationAsync(true));
         history.Enabled = hostHelp.Enabled = false;
         _host.SelectionChanged += (_, _) => history.Enabled = hostHelp.Enabled = Selected<CatalogApp>(_host) != null;
-        _enableHost = Ui.Button("호스트 켜기", async (_, _) => await EnableHostAsync(), true);
-        _tabs.TabPages.Add(Page("호스트 관리", Ui.Bar(_enableHost, Ui.Button("호스트 설정", async (_, _) => await SettingsAsync("host")), Ui.Button("저장소 선택", async (_, _) => await SelectRepositoriesAsync(), true), Ui.Button("GitHub 동기화", async (_, _) => await SyncGitHubAsync()), history, hostHelp, Ui.Button("임시 파일 정리", (_, _) => ClearTemporaryFiles())), _host, _hostStatus));
+        _hostPage = Page("호스트 관리", Ui.Bar(Ui.Button("호스트 설정", async (_, _) => await SettingsAsync("host")), Ui.Button("저장소 선택", async (_, _) => await SelectRepositoriesAsync(), true), Ui.Button("GitHub 동기화", async (_, _) => await SyncGitHubAsync()), history, hostHelp, Ui.Button("임시 파일 정리", (_, _) => ClearTemporaryFiles())), _host, _hostStatus);
+        _tabs.TabPages.Add(_hostPage);
         _host.CellDoubleClick += (_, e) => { if (e.RowIndex >= 0) ShowHostHistory(); };
         _local.CellDoubleClick += (_, e) => { if (e.RowIndex >= 0) Launch(); };
         _local.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) { e.Handled = true; e.SuppressKeyPress = true; Launch(); } };
@@ -235,7 +237,8 @@ internal sealed class MainForm : Form
 
     private void Render()
     {
-        _enableHost.Enabled = !_state.Settings.HostEnabled;
+        if (_state.Settings.HostEnabled && !_tabs.TabPages.Contains(_hostPage)) _tabs.TabPages.Add(_hostPage);
+        else if (!_state.Settings.HostEnabled && _tabs.TabPages.Contains(_hostPage)) _tabs.TabPages.Remove(_hostPage);
         var localId = Selected<LocalProgram>(_local)?.Id;
         var catalogId = Selected<CatalogApp>(_catalog)?.Id;
         var hostId = Selected<CatalogApp>(_host)?.Id;
@@ -278,6 +281,7 @@ internal sealed class MainForm : Form
         _receiveStatus.Text = _state.Pairing is PairingInfo connected ? $"받는 프로그램 · 호스트 {connected.Host}:{connected.Port} · 배포 앱 {_remote.Apps.Count}개\n이 목록은 설치 가능한 앱입니다. 설치하거나 ‘기존 설치 연결’을 해야 내 프로그램과 연결됩니다."
             : _state.Settings.HostEnabled ? $"이 PC에서 배포하는 앱 {_remote.Apps.Count}개 · 여기에서 이 PC에도 설치할 수 있습니다.\n다른 호스트의 목록을 받으려면 ‘연결 설정’을 선택하세요."
             : "다른 PC에서 프로그램 받기\n‘연결 설정’에서 호스트가 생성한 연결 코드를 등록하면 설치할 프로그램 목록이 표시됩니다.";
+        if (_catalogWarning.Length > 0) _receiveStatus.Text += "\n" + _catalogWarning;
         ShowDetails();
     }
 
@@ -360,24 +364,24 @@ internal sealed class MainForm : Form
 
     private async Task<bool> RefreshAsync(bool manual = true)
     {
-        return await RunAsync("배포 목록 확인 중…", async token =>
+        return await RunAsync("호스트에서 GitHub 최신 배포 목록 확인 중…", async token =>
         {
             _published = await Task.Run(() => _state.Store.Read(), token);
             await RefreshInstalledAsync();
             var info = ActivePairing;
             if (info is null) { Render(); _status.Text = "호스트 미연결 · 설정 → 클라이언트 · 연결에서 호스트가 준 코드를 등록하세요."; return; }
             using var client = new CatalogClient(info);
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
-            timeout.CancelAfter(TimeSpan.FromSeconds(15));
-            var catalog = await client.FetchCatalogAsync(timeout.Token);
+            var catalog = await client.FetchCatalogAsync(token, refreshCatalog: true);
             _state.Cache = new CachedCatalog { Catalog = catalog, CheckedUtc = DateTimeOffset.UtcNow, Fingerprint = info.Fingerprint };
             _state.SaveCache();
             _remote = catalog;
+            _catalogWarning = client.RefreshWarning;
+            _published = _state.Store.Read();
             _fingerprint = info.Fingerprint;
             await RefreshInstalledAsync();
             Render();
             NotifyAppUpdates();
-            _status.Text = _remote.Apps.Count == 0 ? "호스트 연결 성공 · 배포 앱 0개. 호스트에서 저장소 선택과 GitHub 동기화를 진행하세요." : $"배포 목록 {_remote.Apps.Count}개 확인 완료";
+            _status.Text = _catalogWarning.Length > 0 ? _catalogWarning : _remote.Apps.Count == 0 ? "호스트 연결 성공 · 배포 앱 0개. 호스트에서 저장소 선택을 확인하세요." : $"배포 목록 {_remote.Apps.Count}개 확인 완료";
         }, showErrors: manual);
     }
 
@@ -429,17 +433,6 @@ internal sealed class MainForm : Form
         _tray.ShowBalloonTip(10000, "설치된 앱 업데이트 " + _appUpdates.Count + "개", "새 버전이 있는 앱: " + string.Join(", ", _appUpdates.Take(3).Select(u => u.Program.Name)) + "\n트레이의 ‘업데이트’ 메뉴에서 확인하세요.", ToolTipIcon.Info);
     }
 
-    private async Task EnableHostAsync()
-    {
-        if (_busy) return;
-        await RunAsync("호스트 시작 중…", async _ =>
-        {
-            var next = AppState.Clone(_state.Settings); next.HostEnabled = true; _state.CommitSettings(next);
-            await RestartHostAsync(); LoadCatalogs(); Render();
-            _status.Text = "호스트가 켜졌습니다. ‘호스트 설정’에서 GitHub 계정과 연결 코드를 준비하고 ‘저장소 선택’으로 배포할 앱을 고르세요.";
-        });
-    }
-
     private async Task ConfigureGitHubAsync(CancellationToken token)
     {
         var api = await GitHubCredentials.CreateAsync(_state.Settings, token);
@@ -465,7 +458,7 @@ internal sealed class MainForm : Form
     private async Task SelectRepositoriesAsync()
     {
         if (_busy) return;
-        if (!_state.Settings.HostEnabled) { _status.Text = "먼저 ‘호스트 켜기’를 누르세요. 설치 목록은 그대로 유지됩니다."; return; }
+        if (!_state.Settings.HostEnabled) { _status.Text = "설정 → 일반에서 호스트 역할을 켜세요."; return; }
         await RunAsync("GitHub 저장소 목록을 가져오는 중…", async token =>
         {
             await ConfigureGitHubAsync(token);
@@ -487,7 +480,7 @@ internal sealed class MainForm : Form
     private async Task SyncGitHubAsync()
     {
         if (_busy) return;
-        if (!_state.Settings.HostEnabled) { _status.Text = "먼저 ‘호스트 켜기’를 누르세요."; return; }
+        if (!_state.Settings.HostEnabled) { _status.Text = "설정 → 일반에서 호스트 역할을 켜세요."; return; }
         if (_state.Settings.GitHubRepositories.Count == 0) { await SelectRepositoriesAsync(); return; }
         await RunAsync("GitHub Release 목록 동기화 중 · 설치 파일은 아직 받지 않습니다…", async token =>
         {
@@ -688,7 +681,7 @@ internal sealed class MainForm : Form
             var hasHost = ActivePairing != null;
             var appsOk = !hasHost || await RefreshAsync();
             var managerOk = await CheckManagerUpdateAsync(true);
-            if (!appsOk || !managerOk) _status.Text = "일부 업데이트를 확인하지 못했습니다. 연결을 확인한 뒤 다시 시도하세요.";
+            if (!appsOk || !managerOk || _catalogWarning.Length > 0) _status.Text = "일부 업데이트를 확인하지 못했습니다. 배포 카탈로그의 안내와 연결 상태를 확인하세요.";
             else _status.Text = (hasHost ? "업데이트 확인 완료" : "Program Manager 확인 완료 · 설치된 앱 확인은 호스트 연결이 필요합니다.")
                 + (UpdateCount > 0 ? $" · 업데이트 {UpdateCount}개: 트레이의 ‘업데이트’ 메뉴에서 선택하세요." : " · 새 업데이트 없음");
         }
@@ -812,6 +805,7 @@ internal sealed class MainForm : Form
             try
             {
                 if (newCache != null) { _state.Cache = newCache; _state.SaveCache(); }
+                if (newCache != null || change.Disconnect) _catalogWarning = "";
                 if (next.HostEnabled != previous.HostEnabled || next.Port != previous.Port || next.AdvertisedHost != previous.AdvertisedHost || (next.HostEnabled && _server is null)) await RestartHostAsync();
                 LoadCatalogs();
                 await RefreshInstalledAsync();
@@ -831,7 +825,7 @@ internal sealed class MainForm : Form
     private async Task RestartHostAsync()
     {
         if (_server != null) { await _server.StopAsync(); _server.Dispose(); _server = null; }
-        if (!_state.Settings.HostEnabled) { _hostStatus.Text = "이 PC에서 다른 PC로 프로그램 보내기\n‘호스트 켜기’ 후 ‘호스트 설정’에서 배포 계정과 연결 코드를 준비하세요."; return; }
+        if (!_state.Settings.HostEnabled) { _hostStatus.Text = "설정 → 일반에서 호스트 역할을 켜면 배포 목록을 관리할 수 있습니다."; return; }
         _identity ??= await Task.Run(() => HostIdentity.LoadOrCreate(Path.Combine(_state.Root, "identity")));
         string githubStatus = "";
         if (_state.Settings.GitHubRepositories.Count > 0)
@@ -842,7 +836,14 @@ internal sealed class MainForm : Form
         var server = new CatalogServer(_state.Store, _identity)
         {
             ManagerUpdates = _managerUpdater.Store,
-            RefreshManagerUpdatesAsync = (force, token) => _managerUpdater.RefreshAsync(force, token)
+            RefreshManagerUpdatesAsync = (force, token) => _managerUpdater.RefreshAsync(force, token),
+            RefreshCatalogAsync = async token =>
+            {
+                var result = await _state.Store.RefreshGitHubAsync(_state.Settings.GitHubRepositories, token).ConfigureAwait(false);
+                var failed = result.Checks.Count(c => c.App is null);
+                if (!IsDisposed && IsHandleCreated) BeginInvoke(new Action(() => { if (!IsDisposed) { LoadCatalogs(); Render(); } }));
+                return failed == 0 ? "" : $"GitHub 확인 실패 {failed}개 · 해당 앱은 이전 배포 정보를 유지했습니다. 호스트에서 GitHub 설정을 확인하세요.";
+            }
         };
         try { await server.StartAsync(_state.Settings.Port); _server = server; }
         catch { server.Dispose(); _hostStatus.Text = "호스트 시작 실패 · 포트 사용 여부와 설정을 확인하세요."; throw; }
@@ -895,6 +896,7 @@ internal sealed class MainForm : Form
     }
     protected override void Dispose(bool disposing)
     {
+        if (disposing) _hostPage.Dispose();
         if (disposing) { _managerTimer.Dispose(); _managerLifetime.Cancel(); _cacheTimer.Dispose(); _tray.Visible = false; _tray.ContextMenuStrip?.Dispose(); _tray.Dispose(); _appUpdateIcon.Dispose(); _server?.Dispose(); _managerUpdater.Dispose(); _identity?.Dispose(); _githubApi?.Dispose(); }
         base.Dispose(disposing);
     }

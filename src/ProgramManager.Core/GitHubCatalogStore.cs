@@ -45,8 +45,16 @@ public sealed partial class CatalogStore
     private readonly Dictionary<string, int> leases = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> downloads = new(StringComparer.OrdinalIgnoreCase);
     private string CacheRoot => Path.Combine(root, "temp");
+    private readonly SemaphoreSlim syncGate = new(1, 1);
 
     public async Task<GitHubSyncResult> RefreshGitHubAsync(IEnumerable<GitHubSelection> selections, CancellationToken token = default, IProgress<GitHubSyncProgress>? progress = null)
+    {
+        await syncGate.WaitAsync(token).ConfigureAwait(false);
+        try { return await RefreshGitHubCoreAsync(selections, token, progress).ConfigureAwait(false); }
+        finally { syncGate.Release(); }
+    }
+
+    private async Task<GitHubSyncResult> RefreshGitHubCoreAsync(IEnumerable<GitHubSelection> selections, CancellationToken token, IProgress<GitHubSyncProgress>? progress)
     {
         var selected = selections.ToList();
         if (selected.Count > 200 || selected.Any(s => s is null) || selected.Select(s => GitHubApi.RepositoryName(s.Repository)).Distinct(StringComparer.OrdinalIgnoreCase).Count() != selected.Count)
