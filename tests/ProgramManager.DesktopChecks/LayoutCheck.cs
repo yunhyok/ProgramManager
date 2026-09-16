@@ -41,6 +41,20 @@ internal sealed class LayoutCheck
     {
         string prefix = (_percent == 0 ? "native" : "simulated-" + _percent) + "/" + surface;
         if (form is ProgramManager.MainForm)
+        {
+            var controls = Descendants(form).ToArray();
+            var search = controls.OfType<TextBox>().Single(c => c.AccessibleName == "프로그램 검색").Parent!;
+            var refresh = controls.OfType<Button>().Single(c => c.Text == "목록 새로고침");
+            Check(Math.Abs(search.Height - refresh.Height) <= 1 && Math.Abs(search.Top - refresh.Top) <= 1, prefix, $"search/button alignment: {search.Bounds} / {refresh.Bounds}");
+            var choice = controls.OfType<ComboBox>().Single(c => c.AccessibleName == "대상 Windows");
+            if (choice.Visible)
+            {
+                var install = controls.OfType<Button>().Single(c => c.Text == "설치 / 업데이트");
+                Check(Math.Abs(choice.Height - install.Height) <= 1 && Math.Abs(choice.Top - install.Top) <= 1, prefix, $"Windows dropdown/button alignment: {choice.Bounds} / {install.Bounds}");
+                Observations.Add($"{prefix}: Windows dropdown={choice.Bounds}; install={install.Bounds}; search={search.Bounds}; refresh={refresh.Bounds}");
+            }
+        }
+        if (form is ProgramManager.MainForm)
             foreach (var shell in form.Controls.OfType<TableLayoutPanel>())
             {
                 Observations.Add($"{prefix}: shell client={shell.ClientSize}; display={shell.DisplayRectangle}; scroll={shell.AutoScrollPosition}; preferred={shell.PreferredSize}");
@@ -49,6 +63,13 @@ internal sealed class LayoutCheck
         foreach (var control in Descendants(form).Where(c => c.Visible))
         {
             var name = control.GetType().Name + " " + Short(control.Text);
+            if (control is TextBox { Multiline: false } && control.Parent is Panel { Name: "InputField" } frame)
+            {
+                using var graphics = frame.CreateGraphics();
+                var expected = (int)Math.Ceiling(38 * graphics.DpiY / 96 * frame.Font.Size / 10);
+                Check(Math.Abs(frame.Height - expected) <= 1, prefix, name + $" input height {frame.Height} differs from shared height {expected}");
+                Check(control.Width >= control.Font.Height * 3, prefix, name + " input is too narrow to type into");
+            }
             if (control is TableLayoutPanel || control is FlowLayoutPanel)
                 Observations.Add($"{prefix}: {name}; bounds={control.Bounds}; display={control.DisplayRectangle}; preferred={control.PreferredSize}; first={Short(control.Controls.Cast<Control>().FirstOrDefault()?.Text ?? "")}");
             if (control is Label label && label.Text.Length > 0 && !label.AutoEllipsis)
@@ -62,6 +83,12 @@ internal sealed class LayoutCheck
             {
                 var preferred = button.GetPreferredSize(Size.Empty);
                 Check(button.Height + 2 >= preferred.Height && button.Width + 2 >= preferred.Width, prefix, name + $" preferred {preferred} > {button.Size}");
+                if (button is Button)
+                {
+                    using var graphics = button.CreateGraphics();
+                    var expectedHeight = (int)Math.Ceiling(38 * graphics.DpiY / 96 * button.Font.Size / 10);
+                    Check(Math.Abs(button.Height - expectedHeight) <= 2, prefix, name + $" height {button.Height} differs from shared control height {expectedHeight}");
+                }
                 if (form is ProgramManager.MainForm)
                     Check(form.ClientRectangle.Contains(form.RectangleToClient(button.RectangleToScreen(button.ClientRectangle))), prefix, name + " outside main viewport");
             }

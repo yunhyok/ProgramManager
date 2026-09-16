@@ -237,7 +237,7 @@ public sealed partial class CatalogStore
     public async Task<byte[]> FetchDocumentationAsync(string id, CancellationToken token = default)
     {
         var app = FindApp(id);
-        var key = Key("docs/" + JsonSerializer.Serialize(app, JsonFiles.Options));
+        var key = Key("docs-v2/" + JsonSerializer.Serialize(app, JsonFiles.Options));
         var path = Path.Combine(CacheRoot, key + ".html");
         var temporary = path + ".part";
         var gate = cacheGates.GetOrAdd(key, _ => new SemaphoreSlim(1, 1));
@@ -294,31 +294,16 @@ public sealed partial class CatalogStore
     private static byte[] RenderDocumentation(CatalogApp app, string readme)
     {
         var html = new StringBuilder("<!doctype html><html lang=\"ko\"><head><meta charset=\"utf-8\"><meta http-equiv=\"X-UA-Compatible\" content=\"IE=edge\"><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>");
-        html.Append(WebUtility.HtmlEncode(app.Name)).Append(" — 프로그램 설명</title><style>body{box-sizing:border-box;font:16px/1.7 'Malgun Gothic',sans-serif;max-width:960px;margin:40px auto;padding:0 24px;color:#203047}h1,h2,h3{line-height:1.35}h2{margin-top:2em;border-bottom:1px solid #ccd5e0;padding-bottom:.4em}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f3f6fa;padding:16px;border-radius:6px}p{overflow-wrap:anywhere}.meta{color:#52647c}li{overflow-wrap:anywhere}</style></head><body><h1>").Append(WebUtility.HtmlEncode(app.Name)).Append("</h1><p class=\"meta\">호스트가 내려받은 오프라인 설명 · ").Append(DateTimeOffset.UtcNow.ToString("yyyy-MM-dd HH:mm 'UTC'")).Append("</p><p>").Append(WebUtility.HtmlEncode(app.Description)).Append("</p><p class=\"meta\">").Append(WebUtility.HtmlEncode(app.GitHubRepository)).Append("</p><h2>프로그램 설명 (README)</h2>");
-        AppendMarkdownText(html, readme);
+        html.Append(WebUtility.HtmlEncode(app.Name)).Append(" — 프로그램 설명</title><style>body{margin:0;font:16px/1.7 'Malgun Gothic',sans-serif;color:#203047}.document{box-sizing:border-box;max-width:960px;margin:40px auto;padding:0 24px;word-wrap:break-word}h1,h2,h3{line-height:1.35}h2{margin-top:2em;border-bottom:1px solid #ccd5e0;padding-bottom:.4em}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f3f6fa;padding:16px;border-radius:6px}p{overflow-wrap:anywhere}.meta{color:#52647c}li{overflow-wrap:anywhere}table{border-collapse:collapse;width:100%;margin:16px 0}th,td{border:1px solid #ccd5e0;padding:8px;text-align:left}th{background:#f3f6fa}blockquote{border-left:4px solid #ccd5e0;margin-left:0;padding-left:16px}code{font-family:Consolas,monospace}a{color:#265cca}</style></head><body><div class=\"document\"><h1>").Append(WebUtility.HtmlEncode(app.Name)).Append("</h1><p class=\"meta\">호스트가 내려받은 오프라인 설명 · ").Append(DateTimeOffset.UtcNow.ToString("yyyy-MM-dd HH:mm 'UTC'")).Append("</p><p>").Append(WebUtility.HtmlEncode(app.Description)).Append("</p><p class=\"meta\">").Append(WebUtility.HtmlEncode(app.GitHubRepository)).Append("</p><h2>프로그램 설명 (README)</h2>");
+        html.Append(OfflineMarkdown.Render(readme));
         html.Append("<h2>배포 버전과 변경 이력</h2>");
         foreach (var group in app.Releases.OrderByDescending(r => CatalogRules.Version(r.Version)).GroupBy(r => r.Version))
         {
             html.Append("<h3>").Append(WebUtility.HtmlEncode(group.Key)).Append("</h3><p class=\"meta\">").Append(WebUtility.HtmlEncode(string.Join(" · ", group.Select(r => r.Platform + " / " + r.FileName)))).Append("</p>");
-            AppendMarkdownText(html, group.First().Notes);
+            html.Append(OfflineMarkdown.Render(group.First().Notes));
         }
-        html.Append("</body></html>");
+        html.Append("</div></body></html>");
         return new UTF8Encoding(false).GetBytes(html.ToString());
     }
 
-    // Only headings, paragraphs and fenced text are rendered; raw HTML and links remain inert text.
-    private static void AppendMarkdownText(StringBuilder html, string source)
-    {
-        var fenced = false;
-        foreach (var line in source.Replace("\r\n", "\n").Split('\n'))
-        {
-            if (line.StartsWith("```", StringComparison.Ordinal)) { html.Append(fenced ? "</pre>" : "<pre>"); fenced = !fenced; continue; }
-            if (fenced) { html.Append(WebUtility.HtmlEncode(line)).Append('\n'); continue; }
-            if (string.IsNullOrWhiteSpace(line)) continue;
-            var heading = Regex.Match(line, "^(#{1,6}) +(.+)$");
-            if (heading.Success) { var level = Math.Min(6, heading.Groups[1].Length + 2); html.Append("<h").Append(level).Append('>').Append(WebUtility.HtmlEncode(heading.Groups[2].Value)).Append("</h").Append(level).Append('>'); }
-            else html.Append("<p>").Append(WebUtility.HtmlEncode(line)).Append("</p>");
-        }
-        if (fenced) html.Append("</pre>");
-    }
 }

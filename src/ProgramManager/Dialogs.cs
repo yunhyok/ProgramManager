@@ -22,7 +22,10 @@ internal static class Dialogs
         {
             if (browser.Document?.Body is not { } body) return;
             using var graphics = form.CreateGraphics();
-            body.Style = "zoom: " + Math.Round(graphics.DpiX / 96 * form.Font.Size / 10 * 100).ToString(System.Globalization.CultureInfo.InvariantCulture) + "%;";
+            var scale = graphics.DpiX / 96 * form.Font.Size / 10;
+            var width = Math.Max(1, Math.Floor((browser.ClientSize.Width - SystemInformation.VerticalScrollBarWidth) / scale));
+            body.Style = "zoom: " + Math.Round(scale * 100).ToString(System.Globalization.CultureInfo.InvariantCulture)
+                + "%; width: " + width.ToString(System.Globalization.CultureInfo.InvariantCulture) + "px; margin: 0;";
             if (section.Length > 0) browser.Document.GetElementById(section)?.ScrollIntoView(true);
             body.ScrollLeft = 0;
             var html = browser.Document.GetElementsByTagName("html");
@@ -31,6 +34,7 @@ internal static class Dialogs
         browser.DocumentCompleted += (_, _) => FitDocument();
         form.FontChanged += (_, _) => FitDocument();
         form.DpiChanged += (_, _) => FitDocument();
+        browser.ClientSizeChanged += (_, _) => FitDocument();
         var close = Ui.Button("닫기", (_, _) => form.Close());
         var footer = Ui.Bar(close); footer.Dock = DockStyle.Bottom;
         form.Controls.Add(browser); form.Controls.Add(footer); form.CancelButton = close;
@@ -64,19 +68,26 @@ internal static class Dialogs
         }
         public void Row(string name, Control control)
         {
+            if (control is ComboBox)
+            {
+                var field = new Panel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink };
+                control.Dock = DockStyle.Top;
+                field.Controls.Add(control);
+                control = field;
+            }
             int row = _table.RowCount++;
             _table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             var label = Ui.Label(name, 9);
             label.Margin = new Padding(0, 9, 10, 10);
             _table.Controls.Add(label, 0, row);
-            control.Dock = DockStyle.Fill;
+            control.Dock = DockStyle.Top;
             control.Margin = new Padding(0, 4, 0, 8);
             _table.Controls.Add(control, 1, row);
         }
         public TextBox TextField(string name, string value = "", bool multi = false)
         {
             var box = new TextBox { Text = value, Multiline = multi, Height = multi ? 74 : 30, ScrollBars = multi ? ScrollBars.Vertical : ScrollBars.None };
-            Row(name, box);
+            Row(name, multi ? box : Ui.SearchField(box));
             return box;
         }
         public TextBox FileField(string name, string path, string filter)
@@ -84,13 +95,15 @@ internal static class Dialogs
             var panel = new TableLayoutPanel { AutoSize = true, ColumnCount = 2, Margin = Padding.Empty };
             panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             panel.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            var box = new TextBox { Text = path, Dock = DockStyle.Fill };
+            var box = new TextBox { Text = path };
+            var field = Ui.SearchField(box);
+            field.Dock = DockStyle.Top;
             var browse = Ui.Button("찾기…", (_, _) =>
             {
                 using var picker = new OpenFileDialog { Filter = filter, CheckFileExists = true };
                 if (picker.ShowDialog(this) == DialogResult.OK) box.Text = picker.FileName;
             });
-            panel.Controls.Add(box);
+            panel.Controls.Add(field);
             panel.Controls.Add(browse);
             Row(name, panel);
             return box;
@@ -167,7 +180,8 @@ internal static class Dialogs
         form.StartPosition = FormStartPosition.CenterParent;
         form.BackColor = Color.White;
         form.ForeColor = Ui.Ink;
-        var tabs = new TabControl { Name = "SettingsTabs", Dock = DockStyle.Fill, Padding = new Point(16, 10) };
+        var tabs = Ui.Tabs();
+        tabs.Name = "SettingsTabs";
         TableLayoutPanel Page(string title)
         {
             var page = new TabPage(title) { BackColor = Color.White, AutoScroll = true };
@@ -212,7 +226,9 @@ internal static class Dialogs
 
         var hostIntro = Note(sending, "", true);
         Note(sending, "① 이 PC 주소 확인 → ② 연결 코드 복사 → ③ 받는 PC에 전달\n배포할 앱은 메인 화면 ‘호스트 관리’에서 선택합니다.");
-        var host = new ComboBox { Name = "HostAddress", AccessibleName = "이 호스트 PC의 내부망 주소", DropDownStyle = ComboBoxStyle.DropDown, Dock = DockStyle.Top };
+        var host = Ui.Choice();
+        host.Name = "HostAddress"; host.AccessibleName = "이 호스트 PC의 내부망 주소";
+        host.DropDownStyle = ComboBoxStyle.DropDown; host.Dock = DockStyle.Top;
         var addresses = ConnectionSettings.LocalAddresses();
         host.Items.AddRange(addresses.Cast<object>().ToArray());
         host.Text = state.Settings.AdvertisedHost;

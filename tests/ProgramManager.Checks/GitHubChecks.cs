@@ -47,11 +47,15 @@ internal static class GitHubChecks
         var corrupted = source.Package.ToArray(); corrupted[0] ^= 1; File.WriteAllBytes(packagePath, corrupted);
         using (var restored = await store.PreparePackageAsync(app.Id, "1.2", "win10-x64")) Check(restored.Content.ReadByte() == source.Package[0], "corrupt cache redownloaded");
         Check(source.AssetRequests == 3, "digest sidecar detects cache corruption");
+        var legacyDocs = Path.Combine(root, "github-cache", "temp", Hash(Encoding.UTF8.GetBytes("docs/" + JsonSerializer.Serialize(app, JsonFiles.Options))).ToLowerInvariant() + ".html");
+        File.WriteAllText(legacyDocs, "legacy escaped HTML cache");
         var docs = Encoding.UTF8.GetString(await store.FetchDocumentationAsync(app.Id));
-        Check(docs.Contains("&lt;script&gt;") && !docs.Contains("<script>") && docs.Contains("Content-Security-Policy") && docs.Contains("<h3>Readme heading</h3>"), "README becomes inert readable HTML");
+        Check(!docs.Contains("legacy escaped HTML cache") && source.ReadmeRequests == 1, "old escaped document cache is regenerated after renderer upgrade");
+        Check(docs.Contains("<h3 id=\"readme-heading\">Readme heading</h3>") && docs.Contains("<p align=\"center\">HTML <strong>intro</strong></p>") && docs.Contains("<table>") && docs.Contains("<li><strong>Bold</strong> item</li>"), "mixed HTML and Markdown headings, alignment, emphasis, tables and lists render as elements");
+        Check(docs.Contains("&lt;b&gt;literal code&lt;/b&gt;") && docs.Contains("[이미지: Logo]") && !docs.Contains("<script") && !docs.Contains("alert(1)") && !docs.Contains("onerror") && !docs.Contains("<iframe") && !docs.Contains(" src=") && !docs.Contains("href=\"https:"), "code stays literal while active content and external resources are excluded");
         Check(docs.Contains("배포 버전과 변경 이력") && docs.Contains("win7"), "offline history includes platform variants");
         store.GitHub = null;
-        var docsPath = Directory.GetFiles(Path.Combine(root, "github-cache", "temp"), "*.html").Single();
+        var docsPath = Directory.GetFiles(Path.Combine(root, "github-cache", "temp"), "*.html").Single(p => p != legacyDocs);
         File.SetLastWriteTimeUtc(docsPath, DateTime.UtcNow.AddDays(-2));
         Check((await store.FetchDocumentationAsync(app.Id)).Length > 0 && source.ReadmeRequests == 1, "description reused offline");
         store.GitHub = api;
@@ -332,7 +336,7 @@ internal static class GitHubChecks
             else if (path == "/repos/owner/program/readme")
             {
                 ReadmeRequests++;
-                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("# Readme heading\n<script>alert(1)</script>\n[Link](https://example.com)\n```\ncode\n```", Encoding.UTF8) });
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("# Readme heading\n\n<p align=\"center\">HTML <strong>intro</strong></p>\n\n| Feature | Value |\n| --- | --- |\n| HTML | Supported |\n\n- **Bold** item\n\n<script>alert(1)</script>\n<img src=\"https://example.com/logo.png\" onerror=\"alert(1)\" alt=\"Logo\">\n<iframe src=\"https://example.com/\"></iframe>\n\n[Link](https://example.com)\n\n```html\n<b>literal code</b>\n```", Encoding.UTF8) });
             }
             else if (path.StartsWith("/repos/owner/program/releases/assets/", StringComparison.Ordinal))
             {

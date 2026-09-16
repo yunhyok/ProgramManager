@@ -19,6 +19,7 @@ internal static class DesktopCheckRunner
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             if (args.Length == 1 && args[0] == "--installed-check") { InstalledProgramsChecks.Run(root); return 0; }
+            if (args.Length == 1 && args[0] == "--docs-check") { OfflineDocumentationChecks.Run(root); return 0; }
             if (args.Length == 2 && args[0] == "--render") { Render(root, args[1]); return 0; }
             if (args.Length == 2 && args[0] == "--layout-check")
             {
@@ -49,6 +50,7 @@ internal static class DesktopCheckRunner
             }
             Checks(root);
             CheckCatalogActions(root);
+            OfflineDocumentationChecks.Run(root);
             CheckRecentPrograms(root);
             ManagerUpdaterChecks.Run(root);
             UpdateInstallerChecks.Run(root);

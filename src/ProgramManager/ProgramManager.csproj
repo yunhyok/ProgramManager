@@ -6,7 +6,7 @@
     <UseWindowsForms>true</UseWindowsForms>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Version>0.4.2</Version>
+    <Version>0.4.3</Version>
     <ApplicationHighDpiMode>SystemAware</ApplicationHighDpiMode>
     <Product>Program Manager</Product>
     <Description>트레이 프로그램 실행 및 내부망 배포 관리</Description>
@@ -25,5 +25,6 @@
   <ItemGroup>
     <ProjectReference Include="../ProgramManager.Core/ProgramManager.Core.csproj" />
     <Content Include="../../docs/guide.html" Link="guide.html" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="../../docs/THIRD-PARTY-NOTICES.txt" Link="THIRD-PARTY-NOTICES.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

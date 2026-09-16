@@ -15,7 +15,7 @@ internal static class GitHubDialogs
         using var form = new Dialogs.Fields("GitHub 설정", 600);
         form.Row("사용 순서", Ui.Label("1. GitHub 연결 설정 → 2. 저장소 선택 → 3. 클라이언트에 연결 코드 전달", 9));
         var account = form.TextField("GitHub 계정 / 조직", current.GitHubOwner);
-        var mode = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList };
+        var mode = Ui.Choice();
         mode.Items.AddRange(["기존 GitHub CLI 로그인 사용", "토큰 직접 입력 (비공개 저장소 포함)", "공개 저장소만 (로그인 없음)"]);
         mode.SelectedIndex = current.GitHubTokenProtected.Length > 0 ? 1 : current.UseGitHubCli ? 0 : 2;
         form.Row("로그인 방식", mode);

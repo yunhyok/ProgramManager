@@ -10,12 +10,12 @@ internal sealed class MainForm : Form
     private readonly Icon _appUpdateIcon;
     private List<(LocalProgram Program, CatalogApp App, AppRelease Release)> _appUpdates = [];
     private bool _appBalloon;
-    private readonly TabControl _tabs = new() { Dock = DockStyle.Fill, Padding = new Point(20, 10) };
+    private readonly TabControl _tabs = Ui.Tabs();
     private readonly DataGridView _local = Ui.Grid(("프로그램", 26), ("설치 버전", 13), ("업데이트", 16), ("실행 경로", 45));
-    private readonly DataGridView _catalog = Ui.Grid(("프로그램", 29), ("설치 버전", 15), ("배포 버전", 15), ("상태", 16), ("설명", 35));
+    private readonly DataGridView _catalog = Ui.Grid(("프로그램", 27), ("설치 버전", 13), ("배포 버전", 13), ("상태", 21), ("설명", 30));
     private readonly DataGridView _host = Ui.Grid(("프로그램", 26), ("GitHub 저장소", 30), ("Win 10/11", 15), ("Win 7/8", 15), ("배포본 수", 12));
     private readonly TextBox _search = new() { Width = 250, AccessibleName = "프로그램 검색" };
-    private readonly ComboBox _platform = new() { Width = 230, DropDownStyle = ComboBoxStyle.DropDownList, AccessibleName = "대상 Windows" };
+    private readonly ComboBox _platform = Ui.Choice();
     private readonly TextBox _details = new() { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, BackColor = Color.White, BorderStyle = BorderStyle.None, AccessibleName = "프로그램 설명과 버전 기록" };
     private readonly Label _summary = Ui.Label("", 10);
     private readonly Label _connection = Ui.Label("", 9);
@@ -65,7 +65,7 @@ internal sealed class MainForm : Form
         header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         header.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         header.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        var heading = Ui.Label("프로그램을 한곳에서.", 18, true);
+        var heading = Ui.Label("프로그램 관리", 20, true);
         heading.Dock = DockStyle.Fill;
         header.Controls.Add(heading, 0, 0);
         var headerButtons = Ui.Bar(Ui.Button("설정", async (_, _) => await SettingsAsync()), Ui.Button("도움말", (_, _) => ShowHelp()));
@@ -74,32 +74,43 @@ internal sealed class MainForm : Form
         headerButtons.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         header.Controls.Add(headerButtons, 1, 0);
         _summary.Dock = _connection.Dock = _hostStatus.Dock = DockStyle.Fill;
+        _summary.ForeColor = _connection.ForeColor = _hostStatus.ForeColor = _receiveStatus.ForeColor = Ui.Muted;
+        _connection.Margin = new Padding(0, 12, 0, 0);
         header.Controls.Add(_summary, 0, 1);
         header.SetColumnSpan(_summary, 2);
         shell.Controls.Add(header, 0, 0);
-        var searchBar = Ui.Bar(Ui.Label("검색", 10, true), _search, Ui.Button("목록 새로고침", async (_, _) => await RefreshAsync()));
+        var searchLabel = Ui.Label("검색", 10, true);
+        searchLabel.Margin = new Padding(0, 0, 12, 8);
+        var searchBar = Ui.Bar(searchLabel, Ui.SearchField(_search), Ui.Button("목록 새로고침", async (_, _) => await RefreshAsync()));
+        searchBar.Margin = new Padding(0, 4, 0, 8);
         shell.Controls.Add(searchBar, 0, 1);
         shell.Controls.Add(_tabs, 0, 2);
         shell.Controls.Add(_connection, 0, 3);
         _search.TextChanged += (_, _) => Render();
         _cancel.Click += (_, _) => _operation?.Cancel();
         _platform.Items.AddRange([Platforms.Label(Platforms.Modern), Platforms.Label(Platforms.Legacy)]);
+        _platform.AccessibleName = "대상 Windows";
         _platform.SelectedIndex = Platforms.Current == Platforms.Modern ? 0 : 1;
         _platform.SelectedIndexChanged += (_, _) => Render();
 
-        var launch = Ui.Button("실행", (_, _) => Launch());
+        var launch = Ui.Button("실행", (_, _) => Launch(), true);
         var edit = Ui.Button("편집", (_, _) => EditLocal(Selected<LocalProgram>(_local)));
         var remove = Ui.Button("목록에서 제거", (_, _) => RemoveLocal());
         launch.Enabled = edit.Enabled = remove.Enabled = false;
         _local.SelectionChanged += (_, _) => launch.Enabled = edit.Enabled = remove.Enabled = Selected<LocalProgram>(_local) != null;
-        _tabs.TabPages.Add(Page("내 프로그램", Ui.Bar(Ui.Button("+ 프로그램 등록", (_, _) => EditLocal(), true), launch, edit, remove), _local, Ui.Label("이 PC의 프로그램을 등록하고 실행합니다. 배포 프로그램과 연결하려면 ‘배포 카탈로그’에서 ‘기존 설치 연결’을 선택하세요.", 9)));
+        _tabs.TabPages.Add(Page("내 프로그램", Ui.Bar(launch, Ui.Button("+ 프로그램 등록", (_, _) => EditLocal()), edit, remove), _local, Ui.Label("이 PC의 프로그램을 등록하고 실행합니다. 배포 앱과 연결하려면 ‘배포 카탈로그’에서 ‘기존 설치 연결’을 선택하세요.", 9)));
         var catalogPane = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2 };
         catalogPane.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        catalogPane.RowStyles.Add(new RowStyle(SizeType.Percent, 64));
-        catalogPane.RowStyles.Add(new RowStyle(SizeType.Percent, 36));
+        catalogPane.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        catalogPane.RowStyles.Add(new RowStyle(SizeType.Absolute, 120));
         catalogPane.Controls.Add(_catalog, 0, 0);
-        var detailPanel = new GroupBox { Dock = DockStyle.Fill, Text = "설명 및 버전 기록", Padding = new Padding(12, 22, 12, 12) };
-        detailPanel.Controls.Add(_details);
+        var detailPanel = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2, Padding = new Padding(12), BackColor = Ui.Canvas, Margin = new Padding(0, 12, 0, 0) };
+        detailPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        detailPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        detailPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        detailPanel.Controls.Add(Ui.Label("설명 및 버전 기록", 9, true), 0, 0);
+        _details.BackColor = Ui.Canvas;
+        detailPanel.Controls.Add(_details, 0, 1);
         catalogPane.Controls.Add(detailPanel, 0, 1);
         var install = Ui.Button("설치 / 업데이트", async (_, _) => await InstallAsync(), true);
         var link = Ui.Button("기존 설치 연결", async (_, _) => await LinkExistingAsync());
@@ -113,7 +124,7 @@ internal sealed class MainForm : Form
             // Enabled reads include the temporarily disabled parent during refresh.
             install.Enabled = app != null && TargetPlatform == Platforms.Current && Platforms.Latest(app, TargetPlatform) != null;
         };
-        _tabs.TabPages.Add(Page("배포 카탈로그", Ui.Bar(Ui.Button("연결 설정", async (_, _) => await SettingsAsync("client")), _platform, install, link, offlineHelp), catalogPane, _receiveStatus));
+        _tabs.TabPages.Add(Page("배포 카탈로그", Ui.Bar(_platform, install, link, offlineHelp, Ui.Button("연결 설정", async (_, _) => await SettingsAsync("client"))), catalogPane, _receiveStatus));
         var history = Ui.Button("설명 / 이력", (_, _) => ShowHostHistory());
         var hostHelp = Ui.Button("오프라인 설명", async (_, _) => await OpenDocumentationAsync(true));
         history.Enabled = hostHelp.Enabled = false;
@@ -132,7 +143,7 @@ internal sealed class MainForm : Form
                 foreach (var path in paths) EditLocal(initialPath: path);
         };
 
-        var statusStrip = new StatusStrip();
+        var statusStrip = new StatusStrip { BackColor = Color.White, ForeColor = Ui.Muted };
         _status.Spring = true;
         _status.TextAlign = ContentAlignment.MiddleLeft;
         statusStrip.Items.AddRange([_progress, _cancel, _status]);
@@ -208,12 +219,12 @@ internal sealed class MainForm : Form
 
     private static TabPage Page(string text, Control toolbar, Control body, Control? note = null)
     {
-        var page = new TabPage(text) { BackColor = Ui.Canvas, Padding = new Padding(12) };
+        var page = new TabPage(text) { BackColor = Color.White, Padding = new Padding(16) };
         var layout = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = note is null ? 2 : 3, ColumnCount = 1 };
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.Controls.Add(toolbar, 0, 0);
-        if (note != null) { layout.RowStyles.Add(new RowStyle(SizeType.AutoSize)); layout.Controls.Add(note, 0, 1); }
+        if (note != null) { note.ForeColor = Ui.Muted; note.Margin = new Padding(0, 4, 0, 12); layout.RowStyles.Add(new RowStyle(SizeType.AutoSize)); layout.Controls.Add(note, 0, 1); }
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         layout.Controls.Add(body, 0, note is null ? 1 : 2);
         page.Controls.Add(layout);

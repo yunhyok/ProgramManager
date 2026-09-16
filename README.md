@@ -1,4 +1,10 @@
-# Program Manager 0.4.2
+# Program Manager 0.4.3
+
+0.4.3에서는 **오프라인 설명**에 HTML 태그가 그대로 보이던 문제를 수정했습니다. README와 릴리스 본문의 HTML·Markdown 제목, 목록, 표, 강조를 서식으로 표시하고 코드 예제는 원문대로 유지합니다. 호스트를 업데이트한 뒤 설명을 다시 열면 이전 설명 캐시를 새 형식으로 생성합니다.
+
+실제 문서 표시와 캐시 갱신 확인은 [0.4.3 검증 기록](docs/verification-0.4.3.md)에 있습니다.
+
+Windows 선택 목록·검색창·버튼의 높이와 정렬 기준을 통일했습니다. 선택 탭과 주요 작업을 강조하고, 목록·설명 영역의 여백과 색상을 정리했습니다. 작은 창에서도 프로그램 설명 영역을 유지합니다.
 
 0.4.2에서는 **클라이언트의 목록 새로고침 → 호스트의 GitHub 조회 → 최신 배포 목록 전달** 순서로 갱신합니다. 호스트와 클라이언트를 모두 0.4.2 이상으로 업데이트하세요. 일부 조회가 실패하면 기존 배포 정보를 유지하고 카탈로그에 안내를 표시합니다. 설치 파일은 설치를 요청할 때만 받습니다.
 
@@ -58,8 +64,8 @@
 
 | 컴퓨터 | 설치 파일 | 런타임 |
 | --- | --- | --- |
-| Windows 10/11 64비트 | `ProgramManager-Setup-0.4.2.exe` | .NET 8 포함 |
-| Windows 7 SP1 / 8 계열 | `ProgramManager-Setup-0.4.2-win7.exe` | .NET Framework 4.8 사전 설치 필요 |
+| Windows 10/11 64비트 | `ProgramManager-Setup-0.4.3.exe` | .NET 8 포함 |
+| Windows 7 SP1 / 8 계열 | `ProgramManager-Setup-0.4.3-win7.exe` | .NET Framework 4.8 사전 설치 필요 |
 
 기본 설치 위치는 `%LOCALAPPDATA%\Programs\Program Manager`입니다. 시작 메뉴에서 실행할 수 있고, 바탕화면 바로가기는 기본으로 만들지 않습니다. Windows 로그인 시 자동 실행은 설치 옵션 또는 앱 설정에서 선택합니다.
 
