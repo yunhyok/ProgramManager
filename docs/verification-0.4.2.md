@@ -9,3 +9,12 @@
 Windows 7용 런타임 검사는 현재 Windows에서 .NET Framework 4.8로 실행합니다. 실제 Windows 7 장비와 별도 물리 클라이언트의 실행 검사는 포함하지 않습니다.
 
 2026-09-16 `tools/build.ps1` 전체 검증을 통과했습니다. .NET 8 / .NET Framework 4.8 Core·Desktop 검사, 양방향 교차 런타임 TLS 전송, 실제 모니터 및 100/125/150/200/250% 화면 배율 검사(생략 0개), 두 설치 파일과 SHA-256 목록 생성을 완료했습니다. 실제 폼을 그린 클라이언트 전용 화면에서도 호스트 탭 없이 설치 버튼과 목록이 표시됩니다. 로그와 화면은 로컬 `artifacts/build-0.4.2.log`, `artifacts/layout/`에 있습니다.
+
+## 공개 배포 및 실제 설치
+
+- [태그 빌드 35037739501](https://github.com/yunhyok/ProgramManager/actions/runs/35037739501)의 검사와 공개 Release 게시가 성공했습니다. `v0.4.2`는 `9c053c04118d3f03b5e6206edb776990b44333ed`입니다.
+- [공개 Release](https://github.com/yunhyok/ProgramManager/releases/tag/v0.4.2)의 두 설치 파일을 직접 다운로드하여 SHA-256 목록 및 설치 파일 제품·버전 정보를 확인했습니다. 인터넷 접근을 차단한 클라이언트 코드에서도 인증된 호스트를 통한 Manager 업데이트 파일 전달을 확인했습니다.
+- Windows 10/11용: 51,075,256바이트, SHA-256 `d8de1a99720442498b49fb0ed38f0aeb23a1e8ee0aea5f0e49f0a98a51c76927`.
+- Windows 7용: 2,435,425바이트, SHA-256 `fee869ad6ad3fe391c465f148cffbe9fdada9baad45c7484b43cdb0f4d4d166d`.
+- 현재 PC의 설치본을 공개 배포 파일로 업데이트했습니다. 설치 버전은 `0.4.2+9c053c04118d3f03b5e6206edb776990b44333ed`이며 이전 설치 백업과 재시작을 확인했습니다. 등록 프로그램 19개, GitHub 선택 10개, 실행 경로·이름과 연결 설정을 보존했습니다.
+- 설치된 호스트의 실제 내부망 주소에 인증된 클라이언트 새로고침을 요청했습니다. 경고 없이 10개 앱을 받았고, GitHub 조회 후 `simple-pi-calculator` 배포 버전이 `0.2 → 0.3`으로 갱신됐습니다. 검증 자료는 로컬 `artifacts/live-0.4.2/`, `artifacts/self-update-installed-0.4.2.json`, `artifacts/installed-host-refresh-0.4.2.json`에 있습니다.
