@@ -1,4 +1,4 @@
-# Program Manager 0.4.3 · GitHub 배포 안내
+# Program Manager 0.4.4 · GitHub 배포 안내
 
 GitHub에 릴리스를 올리는 작업은 기존 개발 과정대로 진행합니다. Program Manager의 호스트는 그중 배포할 저장소를 선택하고, 클라이언트가 요청한 설치 파일과 설명을 내부망으로 제공합니다.
 

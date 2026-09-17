@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Program Manager 0.4.3 사용 안내</title>
+  <title>Program Manager 0.4.4 사용 안내</title>
   <style>
     body { margin: 0; background: #f3f6f9; color: #243042; font: 16px/1.75 "Segoe UI", "Malgun Gothic", sans-serif; }
     main { display: block; box-sizing: border-box; max-width: 940px; margin: 28px auto; padding: 36px; background: #fff; border: 1px solid #dbe2e8; border-radius: 12px; }
@@ -30,8 +30,8 @@
 <body>
 <main>
   <span class="badge">설치에 포함된 오프라인 도움말</span>
-  <h1>Program Manager 0.4.3 사용 안내</h1>
-  <p><strong>0.4.3 변경:</strong> 선택 목록·검색창·버튼의 높이와 정렬을 맞추고, 탭·목록·설명 영역의 간격과 색상을 정리했습니다. 오프라인 설명의 HTML 태그 노출과 확대 화면에서 본문이 잘리는 문제도 수정했습니다. 호스트와 사용하는 PC를 업데이트한 뒤 설명 창을 다시 여세요.</p>
+  <h1>Program Manager 0.4.4 사용 안내</h1>
+  <p><strong>0.4.4 변경:</strong> 호스트 관리의 중복 호스트 설정 버튼을 제거했습니다. 주소·계정·연결 코드는 상단 <strong>설정 → 호스트 · 배포</strong>에서 관리합니다.</p>
   <p><strong>0.4.2 변경:</strong> 클라이언트에서 목록을 새로고침하면 호스트가 GitHub의 최신 릴리스를 먼저 조회한 뒤 전달합니다. 호스트와 클라이언트 모두 0.4.2 이상을 사용하세요. 조회가 실패한 항목은 이전 정보를 유지하며 배포 카탈로그에 안내를 표시합니다. 설치 파일은 설치할 때만 받습니다.</p>
   <p><strong>클라이언트 전용 화면:</strong> 설정 → 일반에서 호스트 역할을 끄면 내 프로그램과 배포 카탈로그만 보입니다. 호스트 관리와 배포 버튼은 역할을 켠 뒤 나타납니다. 설치 / 업데이트 버튼은 선택한 앱에 현재 Windows용 설치 파일이 있을 때 활성화됩니다.</p>
   <p class="lead">이 PC의 프로그램은 한 목록에서 실행하고, 다른 PC에는 GitHub의 배포 버전을 전달합니다.</p>
@@ -48,7 +48,7 @@
     <tbody>
       <tr><td>이 PC에 설치된 앱 실행</td><td><strong>내 프로그램</strong></td><td>프로그램 선택 → <strong>실행</strong></td></tr>
       <tr><td>새 프로그램 설치·기존 앱 업데이트</td><td><strong>배포 카탈로그</strong></td><td><strong>연결 설정</strong> → 연결 확인·저장 → 프로그램 선택</td></tr>
-      <tr><td>다른 PC에 배포할 프로그램 선택</td><td><strong>호스트 관리</strong></td><td><strong>호스트 설정</strong> → GitHub 연결 → 저장소 선택</td></tr>
+      <tr><td>다른 PC에 배포할 프로그램 선택</td><td><strong>호스트 관리</strong></td><td><strong>설정 → 호스트 · 배포</strong> → GitHub 연결 → 저장소 선택</td></tr>
       <tr><td>Program Manager 자체 업데이트</td><td><strong>트레이 오른쪽 클릭 메뉴</strong></td><td>업데이트 확인 → 새 버전의 업데이트 및 재시작</td></tr>
     </tbody>
   </table></div>
@@ -62,7 +62,7 @@
   </div>
 
   <h2 id="settings">설정 탭과 입력값 알아보기</h2>
-  <p><strong>설정</strong>은 아래 세 탭으로 나뉩니다. 메인 화면의 <strong>호스트 설정</strong>은 <strong>호스트 · 배포</strong> 탭을, <strong>연결 설정</strong>은 <strong>클라이언트 · 연결</strong> 탭을 바로 엽니다. 연결 코드도 설정 안에서 복사하거나 입력합니다.</p>
+  <p><strong>설정</strong>은 아래 세 탭으로 나뉩니다. 호스트 설정은 상단 <strong>설정 → 호스트 · 배포</strong>에서 엽니다. <strong>연결 설정</strong>은 <strong>클라이언트 · 연결</strong> 탭을 바로 엽니다. 연결 코드도 설정 안에서 복사하거나 입력합니다.</p>
   <div class="table"><table>
     <thead><tr><th scope="col">설정 탭</th><th scope="col">무엇을 설정하나요?</th><th scope="col">어떤 값을 넣나요?</th></tr></thead>
     <tbody>
@@ -120,7 +120,7 @@
   <ol class="steps">
     <li><strong>역할·주소 설정 후 적용</strong><br><strong>설정 → 일반</strong>에서 <strong>다른 PC에 프로그램 배포 (호스트)</strong>를 체크합니다. <strong>호스트 · 배포</strong>에서 클라이언트와 같은 내부망에 연결된 네트워크 어댑터의 주소와 포트를 확인하고 <strong>설정 적용</strong>을 누릅니다.</li>
     <li><strong>GitHub 연결 후 프로그램 선택</strong><br><strong>호스트 · 배포 → GitHub 및 임시 파일 설정</strong>에서 계정을 연결합니다. 메인 화면의 <strong>호스트 관리 → 저장소 선택</strong>에서 검사 상태를 확인해 프로그램을 고르고 <strong>선택한 저장소 동기화</strong>를 누릅니다. 이후 새 버전은 <strong>GitHub 동기화</strong>로 확인합니다.</li>
-    <li><strong>설정에서 코드 생성·전달</strong><br><strong>호스트 설정</strong>으로 돌아와 <strong>호스트 · 배포</strong>의 <strong>연결 코드 생성 · 복사</strong>를 누릅니다. 설정 적용·호스트 시작·주소 연결 확인에 성공하면 <code>PM1:</code> 코드가 생성·복사됩니다. 전체 코드를 사용할 PC에 전달합니다. 주소·포트를 바꾸면 새 코드를 생성해 다시 전달하세요.</li>
+    <li><strong>설정에서 코드 생성·전달</strong><br><strong>설정 → 호스트 · 배포</strong>로 돌아와 <strong>연결 코드 생성 · 복사</strong>를 누릅니다. 설정 적용·호스트 시작·주소 연결 확인에 성공하면 <code>PM1:</code> 코드가 생성·복사됩니다. 전체 코드를 사용할 PC에 전달합니다. 주소·포트를 바꾸면 새 코드를 생성해 다시 전달하세요.</li>
   </ol>
   <p class="note"><strong>완료 확인:</strong> 호스트 목록에 선택한 저장소와 배포 가능한 버전이 표시되고, 클라이언트가 목록을 새로 고쳤을 때 같은 프로그램이 보이면 준비되었습니다. 이 단계에서 모든 설치 파일을 다운로드하지 않습니다.</p>
   <p>비공개 저장소는 해당 저장소를 읽을 수 있는 계정·토큰으로 연결해야 합니다. GitHub 인증 정보는 호스트에서만 사용합니다. 클라이언트에 토큰을 복사할 필요가 없습니다.</p>
@@ -187,7 +187,7 @@
       <tr><td>내 프로그램이 비어 있음</td><td>배포 카탈로그에서 설치하면 실행 경로와 실제 버전을 찾아 자동 등록합니다. 이미 설치한 앱은 <strong>기존 설치 연결</strong>, 그 외 앱은 <strong>+ 프로그램 등록</strong>을 사용합니다.</td></tr>
       <tr><td>호스트 미연결</td><td><strong>연결 설정 → 클라이언트 · 연결</strong>에서 받은 <code>PM1:</code> 코드 전체를 붙여 넣고 <strong>연결 확인</strong> 후 <strong>설정 적용</strong>을 누릅니다. 내 프로그램의 기존 앱은 계속 실행할 수 있습니다.</td></tr>
       <tr><td>호스트 옵션이 비활성 상태</td><td>클라이언트 역할이므로 배포 설정을 사용할 수 없다는 안내를 확인하세요. 배포할 PC라면 <strong>설정 → 일반</strong>에서 <strong>다른 PC에 프로그램 배포 (호스트)</strong>를 체크합니다.</td></tr>
-      <tr><td>연결 코드를 어디에서 복사하나요?</td><td><strong>호스트 설정 → 호스트 · 배포</strong> 안의 <strong>연결 코드 생성 · 복사</strong>를 사용합니다. 이 버튼으로 설정을 적용하고 호스트 시작·주소 연결 확인에 성공해야 코드가 생성·복사됩니다.</td></tr>
+      <tr><td>연결 코드를 어디에서 복사하나요?</td><td><strong>설정 → 호스트 · 배포</strong> 안의 <strong>연결 코드 생성 · 복사</strong>를 사용합니다. 이 버튼으로 설정을 적용하고 호스트 시작·주소 연결 확인에 성공해야 코드가 생성·복사됩니다.</td></tr>
       <tr><td>저장된 호스트 이름으로 코드 생성 실패</td><td>클라이언트가 찾을 수 있는 주소인지 확인하세요. <strong>호스트 · 배포</strong>의 네트워크 어댑터 주소 목록에서 현재 LAN IP를 선택하고 <strong>연결 코드 생성 · 복사</strong>를 다시 누릅니다.</td></tr>
       <tr><td>코드 형식 오류 또는 엉뚱한 연결 대상</td><td>IP나 직접 정한 비밀번호 대신 호스트에서 복사한 <code>PM1:</code> 문자열 전체를 넣으세요. 호스트 주소가 바뀌었다면 새 코드를 받아 다시 확인·저장합니다.</td></tr>
       <tr><td>저장소 목록이 비어 있음</td><td>호스트의 GitHub 계정·소유자와 저장소 접근 권한을 확인하고 목록을 다시 불러옵니다.</td></tr>
@@ -210,8 +210,8 @@
   <div class="table"><table>
     <thead><tr><th scope="col">컴퓨터</th><th scope="col">설치 파일</th></tr></thead>
     <tbody>
-      <tr><td>Windows 10/11 64비트</td><td><code>ProgramManager-Setup-0.4.3.exe</code><br>.NET 8 포함</td></tr>
-      <tr><td>Windows 7 SP1 / 8 계열</td><td><code>ProgramManager-Setup-0.4.3-win7.exe</code><br>.NET Framework 4.8 사전 설치 필요</td></tr>
+      <tr><td>Windows 10/11 64비트</td><td><code>ProgramManager-Setup-0.4.4.exe</code><br>.NET 8 포함</td></tr>
+      <tr><td>Windows 7 SP1 / 8 계열</td><td><code>ProgramManager-Setup-0.4.4-win7.exe</code><br>.NET Framework 4.8 사전 설치 필요</td></tr>
     </tbody>
   </table></div>
   <p>기본 설치 위치는 <code>%LOCALAPPDATA%\Programs\Program Manager</code>입니다. 시작 메뉴에서 실행하세요. Windows 7 설치에서 런타임 안내가 나오면 .NET Framework 4.8을 먼저 설치합니다. Manager 설치 프로그램이 런타임을 자동 다운로드하지는 않습니다.</p>
@@ -221,7 +221,7 @@
   <p>직접 입력한 GitHub 토큰과 연결 정보는 Windows 사용자 계정으로 보호하므로 다른 PC·사용자에게 단순 복사해 이전하지 않습니다. 연결 코드에는 호스트 주소·포트·인증서 지문·공유 비밀이 포함됩니다. 사용할 PC에만 전달하고 공개 문서나 스크린샷에 넣지 마세요.</p>
   <p>클라이언트는 TLS 1.2에서 등록된 인증서 지문으로 호스트를 확인합니다. <code>--tray</code>는 트레이 시작, <code>--data-dir &quot;폴더 경로&quot;</code>는 별도 데이터 폴더 실행 옵션입니다. 일반 사용에서는 기본 경로를 사용하면 됩니다.</p>
   <p>배포 프로그램의 원격 무인 설치·자동 롤백, 호스트 자동 검색, Windows 서비스와 인터넷 중계는 제공하지 않습니다. Manager 자체 업데이트는 설치 실패 시 이전 Manager 파일의 복구를 시도합니다. 실제 Windows 7 PC와 두 번째 물리 PC에서의 설치·통신 검증은 별도입니다.</p>
-  <footer>Program Manager 0.4.3 · 이 도움말 자체는 인터넷 연결 없이 읽을 수 있습니다. <a href="#screens">화면별 용도로 돌아가기</a></footer>
+  <footer>Program Manager 0.4.4 · 이 도움말 자체는 인터넷 연결 없이 읽을 수 있습니다. <a href="#screens">화면별 용도로 돌아가기</a></footer>
 </main>
 </body>
 </html>

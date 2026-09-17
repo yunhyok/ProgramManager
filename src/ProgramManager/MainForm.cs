@@ -129,7 +129,7 @@ internal sealed class MainForm : Form
         var hostHelp = Ui.Button("오프라인 설명", async (_, _) => await OpenDocumentationAsync(true));
         history.Enabled = hostHelp.Enabled = false;
         _host.SelectionChanged += (_, _) => history.Enabled = hostHelp.Enabled = Selected<CatalogApp>(_host) != null;
-        _hostPage = Page("호스트 관리", Ui.Bar(Ui.Button("호스트 설정", async (_, _) => await SettingsAsync("host")), Ui.Button("저장소 선택", async (_, _) => await SelectRepositoriesAsync(), true), Ui.Button("GitHub 동기화", async (_, _) => await SyncGitHubAsync()), history, hostHelp, Ui.Button("임시 파일 정리", (_, _) => ClearTemporaryFiles())), _host, _hostStatus);
+        _hostPage = Page("호스트 관리", Ui.Bar(Ui.Button("저장소 선택", async (_, _) => await SelectRepositoriesAsync(), true), Ui.Button("GitHub 동기화", async (_, _) => await SyncGitHubAsync()), history, hostHelp, Ui.Button("임시 파일 정리", (_, _) => ClearTemporaryFiles())), _host, _hostStatus);
         _tabs.TabPages.Add(_hostPage);
         _host.CellDoubleClick += (_, e) => { if (e.RowIndex >= 0) ShowHostHistory(); };
         _local.CellDoubleClick += (_, e) => { if (e.RowIndex >= 0) Launch(); };
@@ -858,7 +858,7 @@ internal sealed class MainForm : Form
         };
         try { await server.StartAsync(_state.Settings.Port); _server = server; }
         catch { server.Dispose(); _hostStatus.Text = "호스트 시작 실패 · 포트 사용 여부와 설정을 확인하세요."; throw; }
-        _hostStatus.Text = $"다른 PC에 배포할 앱을 선택하고 새 버전을 동기화합니다.\n호스트 실행 중 · {_state.Settings.AdvertisedHost}:{_state.Settings.Port} · 주소·계정·연결 코드는 ‘호스트 설정’에서 관리합니다.{githubStatus}";
+        _hostStatus.Text = $"다른 PC에 배포할 앱을 선택하고 새 버전을 동기화합니다.\n호스트 실행 중 · {_state.Settings.AdvertisedHost}:{_state.Settings.Port} · 주소·계정·연결 코드는 ‘설정 → 호스트 · 배포’에서 관리합니다.{githubStatus}";
     }
 
     private async Task<bool> RunAsync(string message, Func<CancellationToken, Task> work, bool showErrors = true)
