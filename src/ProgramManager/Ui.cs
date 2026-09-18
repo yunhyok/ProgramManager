@@ -76,6 +76,7 @@ internal static class Ui
 
     public static Control SearchField(TextBox box)
     {
+        var logicalWidth = box.Width;
         var frame = new Panel { Name = "InputField", Width = box.Width, Height = 38, BackColor = Color.White, Margin = new Padding(0, 0, 8, 8), TabStop = false };
         box.BorderStyle = BorderStyle.None;
         frame.Controls.Add(box);
@@ -84,7 +85,15 @@ internal static class Ui
             var inset = Math.Max(4, frame.Height / 4);
             box.SetBounds(inset, Math.Max(0, (frame.Height - box.PreferredHeight) / 2), Math.Max(1, frame.Width - 2 * inset), box.PreferredHeight);
         };
-        void Fit() => frame.Height = ControlHeight(frame);
+        void Fit()
+        {
+            frame.Height = ControlHeight(frame);
+            if (frame.Dock == DockStyle.None)
+            {
+                using var graphics = frame.CreateGraphics();
+                frame.Width = (int)Math.Ceiling(logicalWidth * graphics.DpiX / 96 * frame.Font.Size / 10);
+            }
+        }
         frame.HandleCreated += (_, _) => frame.BeginInvoke(new Action(() => { if (!frame.IsDisposed) Fit(); }));
         frame.FontChanged += (_, _) => { if (frame.IsHandleCreated) Fit(); };
         frame.DpiChangedAfterParent += (_, _) => Fit();

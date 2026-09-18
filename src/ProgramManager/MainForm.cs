@@ -14,7 +14,9 @@ internal sealed class MainForm : Form
     private readonly DataGridView _local = Ui.Grid(("프로그램", 26), ("설치 버전", 13), ("업데이트", 16), ("실행 경로", 45));
     private readonly DataGridView _catalog = Ui.Grid(("프로그램", 27), ("설치 버전", 13), ("배포 버전", 13), ("상태", 21), ("설명", 30));
     private readonly DataGridView _host = Ui.Grid(("프로그램", 26), ("GitHub 저장소", 30), ("Win 10/11", 15), ("Win 7/8", 15), ("배포본 수", 12));
-    private readonly TextBox _search = new() { Width = 250, AccessibleName = "프로그램 검색" };
+    private readonly TextBox _localSearch = new() { Width = 250, AccessibleName = "내 프로그램 검색" };
+    private readonly TextBox _catalogSearch = new() { Width = 250, AccessibleName = "배포 카탈로그 검색" };
+    private readonly TextBox _hostSearch = new() { Width = 250, AccessibleName = "호스트 관리 검색" };
     private readonly ComboBox _platform = Ui.Choice();
     private readonly TextBox _details = new() { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, BackColor = Color.White, BorderStyle = BorderStyle.None, AccessibleName = "프로그램 설명과 버전 기록" };
     private readonly Label _summary = Ui.Label("", 10);
@@ -54,9 +56,8 @@ internal sealed class MainForm : Form
         Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath) ?? SystemIcons.Application;
         _appUpdateIcon = Ui.UpdateIcon(Icon);
 
-        var shell = new TableLayoutPanel { Dock = DockStyle.Fill, AutoScroll = true, RowCount = 4, ColumnCount = 1, Padding = new Padding(24, 20, 24, 12) };
+        var shell = new TableLayoutPanel { Dock = DockStyle.Fill, AutoScroll = true, RowCount = 3, ColumnCount = 1, Padding = new Padding(24, 20, 24, 12) };
         shell.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        shell.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         shell.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         shell.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         shell.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -79,14 +80,8 @@ internal sealed class MainForm : Form
         header.Controls.Add(_summary, 0, 1);
         header.SetColumnSpan(_summary, 2);
         shell.Controls.Add(header, 0, 0);
-        var searchLabel = Ui.Label("검색", 10, true);
-        searchLabel.Margin = new Padding(0, 0, 12, 8);
-        var searchBar = Ui.Bar(searchLabel, Ui.SearchField(_search), Ui.Button("목록 새로고침", async (_, _) => await RefreshAsync()));
-        searchBar.Margin = new Padding(0, 4, 0, 8);
-        shell.Controls.Add(searchBar, 0, 1);
-        shell.Controls.Add(_tabs, 0, 2);
-        shell.Controls.Add(_connection, 0, 3);
-        _search.TextChanged += (_, _) => Render();
+        shell.Controls.Add(_tabs, 0, 1);
+        shell.Controls.Add(_connection, 0, 2);
         _cancel.Click += (_, _) => _operation?.Cancel();
         _platform.Items.AddRange([Platforms.Label(Platforms.Modern), Platforms.Label(Platforms.Legacy)]);
         _platform.AccessibleName = "대상 Windows";
@@ -98,7 +93,7 @@ internal sealed class MainForm : Form
         var remove = Ui.Button("목록에서 제거", (_, _) => RemoveLocal());
         launch.Enabled = edit.Enabled = remove.Enabled = false;
         _local.SelectionChanged += (_, _) => launch.Enabled = edit.Enabled = remove.Enabled = Selected<LocalProgram>(_local) != null;
-        _tabs.TabPages.Add(Page("내 프로그램", Ui.Bar(launch, Ui.Button("+ 프로그램 등록", (_, _) => EditLocal()), edit, remove), _local, Ui.Label("이 PC의 프로그램을 등록하고 실행합니다. 배포 앱과 연결하려면 ‘배포 카탈로그’에서 ‘기존 설치 연결’을 선택하세요.", 9)));
+        _tabs.TabPages.Add(Page("내 프로그램", _localSearch, Ui.Button("설치 정보 새로고침", async (_, _) => await RefreshLocalAsync()), Ui.Bar(launch, Ui.Button("+ 프로그램 등록", (_, _) => EditLocal()), edit, remove), _local, Ui.Label("이 PC의 프로그램을 등록하고 실행합니다. 배포 앱과 연결하려면 ‘배포 카탈로그’에서 ‘기존 설치 연결’을 선택하세요.", 9)));
         var catalogPane = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2 };
         catalogPane.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         catalogPane.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
@@ -124,12 +119,12 @@ internal sealed class MainForm : Form
             // Enabled reads include the temporarily disabled parent during refresh.
             install.Enabled = app != null && TargetPlatform == Platforms.Current && Platforms.Latest(app, TargetPlatform) != null;
         };
-        _tabs.TabPages.Add(Page("배포 카탈로그", Ui.Bar(_platform, install, link, offlineHelp, Ui.Button("연결 설정", async (_, _) => await SettingsAsync("client"))), catalogPane, _receiveStatus));
+        _tabs.TabPages.Add(Page("배포 카탈로그", _catalogSearch, Ui.Button("목록 새로고침", async (_, _) => await RefreshAsync()), Ui.Bar(_platform, install, link, offlineHelp, Ui.Button("연결 설정", async (_, _) => await SettingsAsync("client"))), catalogPane, _receiveStatus));
         var history = Ui.Button("설명 / 이력", (_, _) => ShowHostHistory());
         var hostHelp = Ui.Button("오프라인 설명", async (_, _) => await OpenDocumentationAsync(true));
         history.Enabled = hostHelp.Enabled = false;
         _host.SelectionChanged += (_, _) => history.Enabled = hostHelp.Enabled = Selected<CatalogApp>(_host) != null;
-        _hostPage = Page("호스트 관리", Ui.Bar(Ui.Button("저장소 선택", async (_, _) => await SelectRepositoriesAsync(), true), Ui.Button("GitHub 동기화", async (_, _) => await SyncGitHubAsync()), history, hostHelp, Ui.Button("임시 파일 정리", (_, _) => ClearTemporaryFiles())), _host, _hostStatus);
+        _hostPage = Page("호스트 관리", _hostSearch, Ui.Button("GitHub 동기화", async (_, _) => await SyncGitHubAsync()), Ui.Bar(Ui.Button("저장소 선택", async (_, _) => await SelectRepositoriesAsync(), true), history, hostHelp, Ui.Button("임시 파일 정리", (_, _) => ClearTemporaryFiles())), _host, _hostStatus);
         _tabs.TabPages.Add(_hostPage);
         _host.CellDoubleClick += (_, e) => { if (e.RowIndex >= 0) ShowHostHistory(); };
         _local.CellDoubleClick += (_, e) => { if (e.RowIndex >= 0) Launch(); };
@@ -217,23 +212,28 @@ internal sealed class MainForm : Form
         menu.Items.Add("종료", null, async (_, _) => await QuitAsync());
     }
 
-    private static TabPage Page(string text, Control toolbar, Control body, Control? note = null)
+    private TabPage Page(string text, TextBox search, Button refresh, Control toolbar, Control body, Control? note = null)
     {
         var page = new TabPage(text) { BackColor = Color.White, Padding = new Padding(16) };
-        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = note is null ? 2 : 3, ColumnCount = 1 };
+        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = note is null ? 3 : 4, ColumnCount = 1 };
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        var searchLabel = Ui.Label("검색", 10, true);
+        searchLabel.Margin = new Padding(0, 0, 12, 8);
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        layout.Controls.Add(toolbar, 0, 0);
-        if (note != null) { note.ForeColor = Ui.Muted; note.Margin = new Padding(0, 4, 0, 12); layout.RowStyles.Add(new RowStyle(SizeType.AutoSize)); layout.Controls.Add(note, 0, 1); }
+        layout.Controls.Add(Ui.Bar(searchLabel, Ui.SearchField(search), refresh), 0, 0);
+        search.TextChanged += (_, _) => Render();
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        layout.Controls.Add(toolbar, 0, 1);
+        if (note != null) { note.ForeColor = Ui.Muted; note.Margin = new Padding(0, 4, 0, 12); layout.RowStyles.Add(new RowStyle(SizeType.AutoSize)); layout.Controls.Add(note, 0, 2); }
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        layout.Controls.Add(body, 0, note is null ? 1 : 2);
+        layout.Controls.Add(body, 0, note is null ? 2 : 3);
         page.Controls.Add(layout);
         return page;
     }
 
     private string TargetPlatform => _platform.SelectedIndex == 0 ? Platforms.Modern : Platforms.Legacy;
     private static T? Selected<T>(DataGridView grid) where T : class => grid.SelectedRows.Count > 0 ? grid.SelectedRows[0].Tag as T : null;
-    private bool Matches(string name) => name.IndexOf(_search.Text.Trim(), StringComparison.CurrentCultureIgnoreCase) >= 0;
+    private static bool Matches(string name, TextBox search) => name.IndexOf(search.Text.Trim(), StringComparison.CurrentCultureIgnoreCase) >= 0;
 
     private void LoadCatalogs()
     {
@@ -254,7 +254,7 @@ internal sealed class MainForm : Form
         var catalogId = Selected<CatalogApp>(_catalog)?.Id;
         var hostId = Selected<CatalogApp>(_host)?.Id;
         _local.Rows.Clear();
-        foreach (var item in _state.Settings.Programs.Where(p => Matches(p.Name)).OrderBy(p => p.Name))
+        foreach (var item in _state.Settings.Programs.Where(p => Matches(p.Name, _localSearch)).OrderBy(p => p.Name))
         {
             var app = item.HostFingerprint == _fingerprint ? _remote.Apps.FirstOrDefault(a => a.Id == item.CatalogId) : null;
             var latest = app is null ? null : Platforms.Latest(app, Platforms.Current);
@@ -264,7 +264,7 @@ internal sealed class MainForm : Form
             if (status == "업데이트 가능") row.DefaultCellStyle.ForeColor = Ui.Blue;
         }
         _catalog.Rows.Clear();
-        foreach (var app in _remote.Apps.Where(a => Matches(a.Name)).OrderBy(a => a.Name))
+        foreach (var app in _remote.Apps.Where(a => Matches(a.Name, _catalogSearch)).OrderBy(a => a.Name))
         {
             var release = Platforms.Latest(app, TargetPlatform);
             var local = _state.FindInstalled(app.Id, _fingerprint);
@@ -272,7 +272,7 @@ internal sealed class MainForm : Form
             row.Tag = app;
         }
         _host.Rows.Clear();
-        foreach (var app in _published.Apps.Where(a => Matches(a.Name)).OrderBy(a => a.Name))
+        foreach (var app in _published.Apps.Where(a => Matches(a.Name, _hostSearch)).OrderBy(a => a.Name))
             _host.Rows[_host.Rows.Add(app.Name, app.GitHubRepository.Length > 0 ? app.GitHubRepository : app.Id, Platforms.Latest(app, Platforms.Modern)?.Version ?? "—", Platforms.Latest(app, Platforms.Legacy)?.Version ?? "—", app.Releases.Count)].Tag = app;
         RestoreSelection(_local, localId, x => ((LocalProgram)x).Id);
         RestoreSelection(_catalog, catalogId, x => ((CatalogApp)x).Id);
@@ -373,6 +373,13 @@ internal sealed class MainForm : Form
         catch (Exception ex) { _state.Settings.Programs = before; ShowError(ex); }
     }
 
+    private Task<bool> RefreshLocalAsync() => RunAsync("이 PC의 설치 정보 확인 중…", async _ =>
+    {
+        await RefreshInstalledAsync();
+        NotifyAppUpdates();
+        _status.Text = $"내 프로그램 {_state.Settings.Programs.Count}개 설치 정보 확인 완료";
+    });
+
     private async Task<bool> RefreshAsync(bool manual = true)
     {
         return await RunAsync("호스트에서 GitHub 최신 배포 목록 확인 중…", async token =>
@@ -426,7 +433,7 @@ internal sealed class MainForm : Form
 
     private void ShowAppUpdate(string? id = null)
     {
-        ShowManager(); _search.Clear(); _tabs.SelectedIndex = 1;
+        ShowManager(); _catalogSearch.Clear(); _tabs.SelectedIndex = 1;
         id ??= _appUpdates.FirstOrDefault().App?.Id;
         foreach (DataGridViewRow row in _catalog.Rows)
             if (row.Tag is CatalogApp app && app.Id == id) { _catalog.CurrentCell = row.Cells[0]; row.Selected = true; break; }
@@ -866,7 +873,6 @@ internal sealed class MainForm : Form
         if (_busy) return false;
         _busy = true;
         _tabs.Enabled = false;
-        _search.Enabled = false;
         _operation = new CancellationTokenSource();
         _progress.Value = 0;
         _progress.Style = ProgressBarStyle.Marquee;
@@ -880,7 +886,7 @@ internal sealed class MainForm : Form
         {
             _operation.Dispose(); _operation = null;
             _busy = false;
-            _tabs.Enabled = _search.Enabled = true;
+            _tabs.Enabled = true;
             _progress.Visible = _cancel.Visible = false;
         }
         return false;

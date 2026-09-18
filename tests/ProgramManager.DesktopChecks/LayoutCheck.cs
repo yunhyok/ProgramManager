@@ -43,8 +43,10 @@ internal sealed class LayoutCheck
         if (form is ProgramManager.MainForm)
         {
             var controls = Descendants(form).ToArray();
-            var search = controls.OfType<TextBox>().Single(c => c.AccessibleName == "프로그램 검색").Parent!;
-            var refresh = controls.OfType<Button>().Single(c => c.Text == "목록 새로고침");
+            var search = controls.OfType<TextBox>().Single(c => c.Visible && c.AccessibleName?.EndsWith(" 검색") == true).Parent!;
+            var refresh = search.Parent!.Controls.OfType<Button>().Single();
+            var localSearch = controls.OfType<TextBox>().Single(c => c.AccessibleName == "내 프로그램 검색").Parent!;
+            Check(Math.Abs(search.Width - localSearch.Width) <= 1, prefix, $"tab search widths differ: {search.Width} / {localSearch.Width}");
             Check(Math.Abs(search.Height - refresh.Height) <= 1 && Math.Abs(search.Top - refresh.Top) <= 1, prefix, $"search/button alignment: {search.Bounds} / {refresh.Bounds}");
             var choice = controls.OfType<ComboBox>().Single(c => c.AccessibleName == "대상 Windows");
             if (choice.Visible)
@@ -157,12 +159,12 @@ internal sealed class LayoutCheck
         if (_percent != 0) return;
         var controls = Descendants(form).ToArray();
         var buttons = controls.OfType<Button>().ToArray();
-        var search = controls.OfType<TextBox>().Single(control => control.AccessibleName == "프로그램 검색");
+        var searches = controls.OfType<TextBox>().Where(control => control.AccessibleName?.EndsWith(" 검색") == true).ToArray();
         var platform = controls.OfType<ComboBox>().Single(control => control.AccessibleName == "대상 Windows");
-        search.Text = "no-matching-program-" + Guid.NewGuid().ToString("N");
+        foreach (var search in searches) search.Text = "no-matching-program-" + Guid.NewGuid().ToString("N");
         foreach (var text in new[] { "실행", "편집", "목록에서 제거", "설치 / 업데이트", "기존 설치 연결", "설명 / 이력" })
             Check(!buttons.Single(button => button.Text == text).Enabled, "actions/empty", text + " should be disabled without a selected program");
-        search.Clear();
+        foreach (var search in searches) search.Clear();
         foreach (var text in new[] { "실행", "편집", "목록에서 제거", "설치 / 업데이트", "기존 설치 연결" })
             Check(buttons.Single(button => button.Text == text).Enabled, "actions/populated", text + " should be enabled for a compatible selected program");
         var originalPlatform = platform.SelectedIndex;

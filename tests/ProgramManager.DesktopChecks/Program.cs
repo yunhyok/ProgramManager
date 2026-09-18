@@ -79,6 +79,21 @@ internal static class DesktopCheckRunner
         Assert(tabs.TabCount == 2 && tabs.TabPages.Cast<TabPage>().All(p => p.Text != "호스트 관리"), "client role hides the host tab and all its controls");
         state.Settings.HostEnabled = true; render.Invoke(form, null);
         Assert(tabs.TabCount == 3 && tabs.TabPages[2].Text == "호스트 관리", "host role restores host controls");
+        var searches = tabs.TabPages.Cast<TabPage>().Select(page => LayoutCheck.Descendants(page).OfType<TextBox>().Single(box => box.AccessibleName == page.Text + " 검색")).ToArray();
+        var grids = new[] { "_local", "_catalog", "_host" }.Select(name => (DataGridView)typeof(MainForm).GetField(name, flags)!.GetValue(form)!).ToArray();
+        state.Settings.Programs.Add(new LocalProgram { Name = "Local entry", Path = Environment.GetEnvironmentVariable("COMSPEC")! });
+        typeof(MainForm).GetField("_remote", flags)!.SetValue(form, new Catalog { Apps = [new CatalogApp { Id = "catalog", Name = "Catalog entry" }] });
+        typeof(MainForm).GetField("_published", flags)!.SetValue(form, new Catalog { Apps = [new CatalogApp { Id = "host", Name = "Host entry" }] });
+        render.Invoke(form, null);
+        for (var index = 0; index < searches.Length; index++)
+        {
+            searches[index].Text = "missing";
+            Assert(grids[index].Rows.Count == 0 && grids.Where((_, other) => other != index).All(grid => grid.Rows.Count == 1), "each search filters only its own list");
+            searches[index].Text = new[] { "Local", "Catalog", "Host" }[index];
+        }
+        tabs.SelectedIndex = 1; tabs.SelectedIndex = 0;
+        Assert(searches.Select(box => box.Text).SequenceEqual(new[] { "Local", "Catalog", "Host" }), "tab switches preserve independent search terms");
+        foreach (var box in searches) box.Clear();
         tabs.SelectedIndex = 2;
         state.Settings.HostEnabled = false; render.Invoke(form, null);
         Assert(tabs.TabCount == 2 && tabs.SelectedIndex >= 0, "switching from the selected host tab leaves a usable client page");
@@ -87,7 +102,7 @@ internal static class DesktopCheckRunner
         render.Invoke(form, null);
         var install = LayoutCheck.Descendants(form).OfType<Button>().Single(b => b.Text == "설치 / 업데이트");
         var platform = (ComboBox)typeof(MainForm).GetField("_platform", flags)!.GetValue(form)!;
-        var search = (TextBox)typeof(MainForm).GetField("_search", flags)!.GetValue(form)!;
+        var search = (TextBox)typeof(MainForm).GetField("_catalogSearch", flags)!.GetValue(form)!;
         var run = typeof(MainForm).GetMethod("RunAsync", flags)!;
         foreach (var fail in new[] { false, true })
         {
@@ -566,7 +581,7 @@ internal static class DesktopCheckRunner
         form.PopulateTrayMenu(menu);
         Assert(!RecentItems(menu).Single(item => (string)item.Tag! == missing.Id).Enabled, "recent menu disables missing executable");
 
-        var search = (TextBox)typeof(MainForm).GetField("_search", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(form)!;
+        var search = (TextBox)typeof(MainForm).GetField("_localSearch", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(form)!;
         var localGrid = (DataGridView)typeof(MainForm).GetField("_local", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(form)!;
         search.Text = "no-matching-program-" + Guid.NewGuid().ToString("N");
         Assert(localGrid.Rows.Count == 0, "search removes all visible local rows for tray independence check");
