@@ -92,7 +92,7 @@ internal static class ManagerUpdaterChecks
         localSearch.Text = "local filter";
         LayoutCheck.Descendants(tabs.TabPages[0]).OfType<Button>().Single(b => b.Text == "설치 정보 새로고침").PerformClick();
         WaitFor("_busy");
-        Assert(((ToolStripStatusLabel)typeof(MainForm).GetField("_status", flags)!.GetValue(form)!).Text.EndsWith("설치 정보 확인 완료"), "local refresh button completes its own action");
+        Assert(((ToolStripStatusLabel)typeof(MainForm).GetField("_status", flags)!.GetValue(form)!).Text?.EndsWith("설치 정보 확인 완료") == true, "local refresh button completes its own action");
         Assert(catalogRefreshes == 0 && state.Cache.CheckedUtc == default && localSearch.Text == "local filter", "local refresh preserves its filter and does not contact the host");
         tabs.SelectedIndex = 1;
         catalogSearch.Text = "Example";
