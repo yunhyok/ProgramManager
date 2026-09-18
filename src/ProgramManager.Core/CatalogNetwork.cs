@@ -23,6 +23,7 @@ internal sealed class WireMessage
     public string Error { get; set; } = "";
     public string ErrorCode { get; set; } = "";
     public int Capabilities { get; set; }
+    public bool SupportsArchives { get; set; }
     public bool ForceManagerRefresh { get; set; }
     public bool RefreshCatalog { get; set; }
     public string RefreshWarning { get; set; } = "";
@@ -181,13 +182,22 @@ public sealed class CatalogServer : IDisposable
                         var warning = request.Operation == "catalog" && request.RefreshCatalog
                             ? await RefreshPublishedCatalogAsync(token).ConfigureAwait(false) : "";
                         var catalog = requestedStore.Read();
-                        if (request.Capabilities < 1 && catalog.Apps.Any(a => !string.IsNullOrEmpty(a.GitHubRepository)))
+                        var needsGitHubClient = catalog.Apps.Any(a => !string.IsNullOrEmpty(a.GitHubRepository));
+                        if (!request.SupportsArchives && catalog.Apps.Any(a => a.Releases.Any(r => r.IsArchive)))
+                        {
+                            foreach (var app in catalog.Apps) app.Releases.RemoveAll(r => r.IsArchive);
+                            catalog.Apps.RemoveAll(a => a.Releases.Count == 0);
+                            warning = (warning + " ZIP 배포 파일을 보려면 클라이언트를 0.5.0 이상으로 업데이트하세요.").Trim();
+                        }
+                        if (request.Capabilities < 1 && needsGitHubClient)
                             await Wire.WriteAsync(tls, new WireMessage { ErrorCode = "client_update_required", Error = "GitHub 배포 목록을 사용하려면 클라이언트 Program Manager를 0.2.0 이상으로 업데이트하세요." }, deadline.Token).ConfigureAwait(false);
                         else await Wire.WriteAsync(tls, new WireMessage { Capabilities = 1, Catalog = catalog, RefreshWarning = warning }, deadline.Token).ConfigureAwait(false);
                     }
                     else if (request.Operation is "package" or "manager-package")
                     {
                         var app = requestedStore.Read().Apps.SingleOrDefault(a => a.Id == request.Id) ?? throw new FileNotFoundException();
+                        if (!request.SupportsArchives && app.Releases.Any(r => r.IsArchive && CatalogRules.NormalizeVersion(r.Version) == CatalogRules.NormalizeVersion(request.Version) && r.Platform == request.Platform))
+                            throw new InvalidDataException("ZIP 다운로드를 지원하는 클라이언트가 필요합니다.");
                         if (request.Capabilities < 1 && !string.IsNullOrEmpty(app.GitHubRepository))
                         {
                             await Wire.WriteAsync(tls, new WireMessage { ErrorCode = "client_update_required", Error = "GitHub 설치 파일을 받으려면 클라이언트 Program Manager를 0.2.0 이상으로 업데이트하세요." }, deadline.Token).ConfigureAwait(false);
@@ -202,7 +212,7 @@ public sealed class CatalogServer : IDisposable
                             {
                                 Version = release.Version, Platform = release.Platform, Size = release.Size,
                                 FileName = release.FileName, Sha256 = release.Sha256, PublishedUtc = release.PublishedUtc,
-                                GitHubAssetId = release.GitHubAssetId, GitHubTag = release.GitHubTag
+                                GitHubAssetId = release.GitHubAssetId, GitHubTag = release.GitHubTag, IsPrerelease = release.IsPrerelease
                             }
                         };
                         responseStarted = true;
@@ -281,7 +291,7 @@ public sealed class CatalogClient : IDisposable
         using var client = new TcpClient();
         using var close = deadline.Token.Register(client.Close);
         using var tls = await ConnectAsync(client, deadline.Token).ConfigureAwait(false);
-        await Wire.WriteAsync(tls, new WireMessage { Operation = operationPrefix + "catalog", Token = info.Token, Capabilities = 1, ForceManagerRefresh = managerUpdates && forceManagerRefresh, RefreshCatalog = !managerUpdates && refreshCatalog }, deadline.Token).ConfigureAwait(false);
+        await Wire.WriteAsync(tls, new WireMessage { Operation = operationPrefix + "catalog", Token = info.Token, Capabilities = 1, SupportsArchives = true, ForceManagerRefresh = managerUpdates && forceManagerRefresh, RefreshCatalog = !managerUpdates && refreshCatalog }, deadline.Token).ConfigureAwait(false);
         var response = await Wire.ReadAsync(tls, CatalogRules.MaxCatalogBytes, deadline.Token).ConfigureAwait(false);
         CheckResponse(response);
         var catalog = CatalogRules.Validate(response.Catalog!);
@@ -308,7 +318,7 @@ public sealed class CatalogClient : IDisposable
         try
         {
             using var tls = await ConnectAsync(client, deadline.Token).ConfigureAwait(false);
-            await Wire.WriteAsync(tls, new WireMessage { Operation = operationPrefix + "package", Token = info.Token, Capabilities = 1, Id = app.Id, Version = version, Platform = trusted.Platform }, deadline.Token).ConfigureAwait(false);
+            await Wire.WriteAsync(tls, new WireMessage { Operation = operationPrefix + "package", Token = info.Token, Capabilities = 1, SupportsArchives = true, Id = app.Id, Version = version, Platform = trusted.Platform }, deadline.Token).ConfigureAwait(false);
             var response = await Wire.ReadAsync(tls, 65536, deadline.Token).ConfigureAwait(false);
             CheckResponse(response);
             var actual = response.Release;
@@ -322,7 +332,7 @@ public sealed class CatalogClient : IDisposable
             else if (response.Id != trustedApp.Id || response.GitHubRepository != trustedApp.GitHubRepository
                 || CatalogRules.NormalizeVersion(actual.Version) != version || actual.Platform != trusted.Platform
                 || actual.FileName != trusted.FileName || actual.Size != trusted.Size || actual.PublishedUtc != trusted.PublishedUtc
-                || actual.GitHubAssetId != trusted.GitHubAssetId || actual.GitHubTag != trusted.GitHubTag
+                || actual.GitHubAssetId != trusted.GitHubAssetId || actual.GitHubTag != trusted.GitHubTag || actual.IsPrerelease != trusted.IsPrerelease
                 || !IsSha256(actual.Sha256)
                 || (!string.IsNullOrEmpty(trusted.Sha256) && !Compat.Equal(actual.Sha256.ToUpperInvariant(), trusted.Sha256.ToUpperInvariant())))
                 throw new InvalidDataException("설치 파일 정보가 카탈로그와 다릅니다. 배포 목록을 새로고침하세요.");

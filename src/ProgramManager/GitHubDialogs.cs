@@ -47,13 +47,15 @@ internal static class GitHubDialogs
         form.ClientSize = new Size(1080, 680);
         form.MinimumSize = new Size(900, 580);
         form.StartPosition = FormStartPosition.CenterParent;
-        var grid = Ui.Grid(("배포", 7), ("GitHub 저장소", 28), ("Win 10/11 파일 패턴", 23), ("Win 7 파일 패턴", 23), ("설명", 25), ("배포 가능 여부", 35));
+        var grid = Ui.Grid(("배포", 7), ("GitHub 저장소", 28), ("Win 10/11 파일 패턴", 23), ("Win 7 파일 패턴", 23), ("설명", 25), ("배포 가능 여부", 35), ("시험판 포함", 12));
         grid.Name = "RepositoryGrid";
         grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None;
         grid.ReadOnly = false;
         grid.Columns.RemoveAt(0);
         grid.Columns.Insert(0, new DataGridViewCheckBoxColumn { HeaderText = "배포", AutoSizeMode = DataGridViewAutoSizeColumnMode.None, Width = 70 });
-        var weights = new[] { 7, 28, 23, 23, 25, 35 };
+        grid.Columns.RemoveAt(6);
+        grid.Columns.Insert(6, new DataGridViewCheckBoxColumn { HeaderText = "시험판 포함", AutoSizeMode = DataGridViewAutoSizeColumnMode.None, Width = 92 });
+        var weights = new[] { 7, 28, 23, 23, 25, 35, 12 };
         for (var index = 0; index < weights.Length; index++) grid.Columns[index].FillWeight = weights[index];
         grid.Columns[1].AutoSizeMode = DataGridViewAutoSizeColumnMode.AllCells;
         grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
@@ -66,8 +68,8 @@ internal static class GitHubDialogs
         foreach (var repository in repositories.Concat(missing).OrderBy(r => r.FullName))
         {
             var selected = current.FirstOrDefault(s => s.Repository.Equals(repository.FullName, StringComparison.OrdinalIgnoreCase));
-            var row = grid.Rows[grid.Rows.Add(selected != null, repository.FullName, selected?.ModernAssetPattern ?? "", selected?.LegacyAssetPattern ?? "", (repository.Private ? "비공개 · " : "") + repository.Description, "검사 대기")];
-            row.Cells[0].ReadOnly = row.Cells[2].ReadOnly = row.Cells[3].ReadOnly = true;
+            var row = grid.Rows[grid.Rows.Add(selected != null, repository.FullName, selected?.ModernAssetPattern ?? "", selected?.LegacyAssetPattern ?? "", (repository.Private ? "비공개 · " : "") + repository.Description, "검사 대기", selected?.IncludePrereleases ?? false)];
+            row.Cells[0].ReadOnly = row.Cells[2].ReadOnly = row.Cells[3].ReadOnly = row.Cells[6].ReadOnly = true;
         }
         var layout = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 6, ColumnCount = 1, Padding = new Padding(20) };
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -78,7 +80,7 @@ internal static class GitHubDialogs
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         var title = Ui.Label(account + " · 클라이언트에 공유할 프로그램에 체크하세요", 14, true); title.Dock = DockStyle.Fill;
-        var guide = Ui.Label("설치 파일 정보를 검사한 뒤 배포 가능한 저장소를 선택할 수 있습니다. 파일 자체는 받지 않습니다.\n후보가 여러 개면 파일 패턴을 수정하세요 (예: *Setup*.exe / *win7*.exe). 모든 체크를 해제하면 배포 목록이 비워집니다.", 9); guide.Dock = DockStyle.Fill;
+        var guide = Ui.Label("EXE/MSI 설치 파일과 ZIP 다운로드 파일을 검사한 뒤 배포할 저장소를 선택합니다. 파일 자체는 받지 않습니다.\n‘시험판 포함’을 선택하면 시험판 릴리스도 다시 평가합니다. 후보가 여러 개면 파일 패턴을 수정하세요 (예: *Setup*.exe / *win7*.exe). 모든 체크를 해제하면 배포 목록이 비워집니다.", 9); guide.Dock = DockStyle.Fill;
         layout.Controls.Add(title, 0, 0); layout.Controls.Add(guide, 0, 1); layout.Controls.Add(grid, 0, 2);
         var details = new TextBox { Name = "RepositoryDetails", AccessibleName = "선택한 저장소 검사 결과", Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, BackColor = Color.White };
         layout.Controls.Add(details, 0, 3);
@@ -91,12 +93,18 @@ internal static class GitHubDialogs
         layout.Controls.Add(progressPanel, 0, 4);
         using var cancellation = new CancellationTokenSource();
         var checking = false;
-        GitHubSelection Selection(DataGridViewRow row) => new() { Repository = Convert.ToString(row.Cells[1].Value)!, ModernAssetPattern = Convert.ToString(row.Cells[2].Value) ?? "", LegacyAssetPattern = Convert.ToString(row.Cells[3].Value) ?? "" };
+        GitHubSelection Selection(DataGridViewRow row) => new() { Repository = Convert.ToString(row.Cells[1].Value)!, ModernAssetPattern = Convert.ToString(row.Cells[2].Value) ?? "", LegacyAssetPattern = Convert.ToString(row.Cells[3].Value) ?? "", IncludePrereleases = Convert.ToBoolean(row.Cells[6].Value) };
         void ShowDetails()
         {
             var row = grid.CurrentRow;
-            details.Text = row is null ? "" : Convert.ToString(row.Cells[1].Value) + "\r\n"
-                + (row.Tag is GitHubRepositoryCheck { App: null } failed ? failed.Error : Convert.ToString(row.Cells[5].Value));
+            if (row is null) { details.Text = ""; return; }
+            if (row.Tag is GitHubRepositoryCheck { App: null } failed) { details.Text = Convert.ToString(row.Cells[1].Value) + "\r\n" + failed.Error; return; }
+            if (row.Tag is GitHubRepositoryCheck { App: not null } ready)
+            {
+                details.Text = Convert.ToString(row.Cells[1].Value) + "\r\n선택된 배포 파일\r\n" + string.Join("\r\n", ready.App!.Releases.Select(release => "- " + release.GitHubTag + (release.IsPrerelease ? " · 시험판" : "") + " · " + (release.Platform == Platforms.Legacy ? "Win 7/8" : "Win 10/11") + " · " + release.FileName + (release.IsArchive ? " · ZIP 다운로드 (자동 설치/등록 없음)" : " · EXE/MSI 설치 파일")));
+                return;
+            }
+            details.Text = Convert.ToString(row.Cells[1].Value) + "\r\n" + Convert.ToString(row.Cells[5].Value);
         }
         void Apply(DataGridViewRow row, GitHubRepositoryCheck result)
         {
@@ -104,14 +112,16 @@ internal static class GitHubDialogs
             var available = result.App != null;
             if (!available && !current.Any(s => s.Repository.Equals(result.Repository.FullName, StringComparison.OrdinalIgnoreCase))) row.Cells[0].Value = false;
             row.Cells[0].ReadOnly = !available && !Convert.ToBoolean(row.Cells[0].Value);
-            row.Cells[2].ReadOnly = row.Cells[3].ReadOnly = result.Releases is null;
+            row.Cells[2].ReadOnly = row.Cells[3].ReadOnly = row.Cells[6].ReadOnly = result.Releases is null;
             row.DefaultCellStyle.ForeColor = row.DefaultCellStyle.SelectionForeColor = available ? Ui.Ink : Ui.Muted;
             var reason = result.Error.Replace(result.Repository.FullName, "").TrimStart(' ', ':').Replace("\r", " ").Replace("\n", " ");
             if (reason.Length > 40) reason = reason.Substring(0, 40) + "…";
+            var installers = string.Join(", ", result.App?.Releases.Where(r => !r.IsArchive).Select(r => r.Platform == Platforms.Legacy ? "Win 7/8" : "Win 10/11").Distinct() ?? []);
+            var archives = string.Join(", ", result.App?.Releases.Where(r => r.IsArchive).Select(r => r.Platform == Platforms.Legacy ? "Win 7/8" : "Win 10/11").Distinct() ?? []);
             row.Cells[5].Value = available
-                ? "배포 가능 · " + string.Join(", ", result.App!.Releases.Select(r => r.Platform == Platforms.Legacy ? "Win 7/8" : "Win 10/11").Distinct())
+                ? "배포 가능" + (Selection(row).IncludePrereleases ? " · 시험판 포함" : "") + " · " + (installers.Length > 0 ? "설치 EXE/MSI: " + installers : "") + (installers.Length > 0 && archives.Length > 0 ? " · " : "") + (archives.Length > 0 ? "ZIP 다운로드: " + archives : "")
                 : (Convert.ToBoolean(row.Cells[0].Value) ? "기존 선택 유지 · " : "선택 불가 · ") + reason;
-            row.Cells[5].ToolTipText = result.Error;
+            row.Cells[5].ToolTipText = available ? string.Join("\r\n", result.App!.Releases.Select(release => release.GitHubTag + " · " + release.FileName + (release.IsPrerelease ? " · 시험판" : ""))) : result.Error;
             ShowDetails();
         }
         void ShowCompletedCount()
@@ -126,7 +136,7 @@ internal static class GitHubDialogs
             if (e.RowIndex < 0 || checking || !(grid.Rows[e.RowIndex].Tag is GitHubRepositoryCheck result)) return;
             var row = grid.Rows[e.RowIndex];
             if (e.ColumnIndex == 0) Apply(row, result);
-            if ((e.ColumnIndex == 2 || e.ColumnIndex == 3) && result.Releases != null)
+            if ((e.ColumnIndex == 2 || e.ColumnIndex == 3 || e.ColumnIndex == 6) && result.Releases != null)
             {
                 var evaluated = CatalogStore.EvaluateGitHubRepository(result.Repository, result.Releases, Selection(row));
                 Apply(row, evaluated);
@@ -156,7 +166,7 @@ internal static class GitHubDialogs
             if (checking) return;
             checking = true; save.Enabled = retry.Enabled = false; grid.EndEdit();
             progress.Value = 0;
-            foreach (DataGridViewRow row in grid.Rows) row.Cells[0].ReadOnly = row.Cells[2].ReadOnly = row.Cells[3].ReadOnly = true;
+            foreach (DataGridViewRow row in grid.Rows) row.Cells[0].ReadOnly = row.Cells[2].ReadOnly = row.Cells[3].ReadOnly = row.Cells[6].ReadOnly = true;
             try
             {
                 foreach (DataGridViewRow row in grid.Rows)
@@ -170,7 +180,7 @@ internal static class GitHubDialogs
                     if (form.IsDisposed || cancellation.IsCancellationRequested) return;
                     Apply(row, inspected);
                     // Keep all editing locked until the metadata pass finishes.
-                    row.Cells[0].ReadOnly = row.Cells[2].ReadOnly = row.Cells[3].ReadOnly = true;
+                    row.Cells[0].ReadOnly = row.Cells[2].ReadOnly = row.Cells[3].ReadOnly = row.Cells[6].ReadOnly = true;
                     progress.Value++;
                 }
                 ShowCompletedCount();

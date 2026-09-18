@@ -32,6 +32,9 @@ public sealed class AppRelease
     public DateTimeOffset PublishedUtc { get; set; }
     public long GitHubAssetId { get; set; }
     public string GitHubTag { get; set; } = "";
+    public bool IsPrerelease { get; set; }
+    [JsonIgnore]
+    public bool IsArchive => FileName.EndsWith(".zip", StringComparison.OrdinalIgnoreCase);
 }
 
 public static class CatalogRules
@@ -68,11 +71,18 @@ public static class CatalogRules
 
     public static string InstallerName(string value)
     {
+        PackageName(value);
+        if (Path.GetExtension(value).Equals(".zip", StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("EXE 또는 MSI 설치 파일만 지원합니다.");
+        return value;
+    }
+
+    public static string PackageName(string value)
+    {
         if (string.IsNullOrWhiteSpace(value) || value.Length > 240 || value != Path.GetFileName(value) || value.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
             throw new InvalidDataException("설치 파일 이름이 올바르지 않습니다.");
         var extension = Path.GetExtension(value);
-        if (!extension.Equals(".exe", StringComparison.OrdinalIgnoreCase) && !extension.Equals(".msi", StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException("EXE 또는 MSI 설치 파일만 지원합니다.");
+        if (!extension.Equals(".exe", StringComparison.OrdinalIgnoreCase) && !extension.Equals(".msi", StringComparison.OrdinalIgnoreCase) && !extension.Equals(".zip", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("EXE, MSI 또는 ZIP 파일만 지원합니다.");
         return value;
     }
 
@@ -92,7 +102,7 @@ public static class CatalogRules
             {
                 if (release is null || !versions.Add(NormalizeVersion(release.Version) + "/" + Platform(release.Platform))) throw new InvalidDataException("중복 또는 빈 버전 정보입니다.");
                 Text(release.Notes, 30000);
-                InstallerName(release.FileName);
+                PackageName(release.FileName);
                 Text(release.GitHubTag, 200);
                 var github = app.GitHubRepository != "" && release.GitHubAssetId > 0 && release.GitHubTag != "";
                 if ((app.GitHubRepository != "") != github || (app.GitHubRepository == "" && (release.GitHubAssetId != 0 || release.GitHubTag != "")))

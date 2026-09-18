@@ -114,10 +114,12 @@ internal sealed class MainForm : Form
         _catalog.SelectionChanged += (_, _) =>
         {
             var app = Selected<CatalogApp>(_catalog);
+            var release = app is null ? null : Platforms.Latest(app, TargetPlatform);
             offlineHelp.Enabled = app != null;
             link.Enabled = app != null && TargetPlatform == Platforms.Current;
+            install.Text = release?.IsArchive == true ? "ZIP 다운로드" : "설치 / 업데이트";
             // Enabled reads include the temporarily disabled parent during refresh.
-            install.Enabled = app != null && TargetPlatform == Platforms.Current && Platforms.Latest(app, TargetPlatform) != null;
+            install.Enabled = app != null && release != null && (release.IsArchive || TargetPlatform == Platforms.Current);
         };
         _tabs.TabPages.Add(Page("배포 카탈로그", _catalogSearch, Ui.Button("목록 새로고침", async (_, _) => await RefreshAsync()), Ui.Bar(_platform, install, link, offlineHelp, Ui.Button("연결 설정", async (_, _) => await SettingsAsync("client"))), catalogPane, _receiveStatus));
         var history = Ui.Button("설명 / 이력", (_, _) => ShowHostHistory());
@@ -268,12 +270,12 @@ internal sealed class MainForm : Form
         {
             var release = Platforms.Latest(app, TargetPlatform);
             var local = _state.FindInstalled(app.Id, _fingerprint);
-            var row = _catalog.Rows[_catalog.Rows.Add(app.Name, local?.InstalledVersion ?? "—", release?.Version ?? "배포본 없음", release is null ? "Windows 배포 대기" : InstallStatus(local, release), app.Description)];
+            var row = _catalog.Rows[_catalog.Rows.Add(app.Name, local?.InstalledVersion ?? "—", ReleaseVersion(release), release is null ? "Windows 배포 대기" : InstallStatus(local, release), app.Description)];
             row.Tag = app;
         }
         _host.Rows.Clear();
         foreach (var app in _published.Apps.Where(a => Matches(a.Name, _hostSearch)).OrderBy(a => a.Name))
-            _host.Rows[_host.Rows.Add(app.Name, app.GitHubRepository.Length > 0 ? app.GitHubRepository : app.Id, Platforms.Latest(app, Platforms.Modern)?.Version ?? "—", Platforms.Latest(app, Platforms.Legacy)?.Version ?? "—", app.Releases.Count)].Tag = app;
+            _host.Rows[_host.Rows.Add(app.Name, app.GitHubRepository.Length > 0 ? app.GitHubRepository : app.Id, ReleaseVersion(Platforms.Latest(app, Platforms.Modern), "—"), ReleaseVersion(Platforms.Latest(app, Platforms.Legacy), "—"), app.Releases.Count)].Tag = app;
         RestoreSelection(_local, localId, x => ((LocalProgram)x).Id);
         RestoreSelection(_catalog, catalogId, x => ((CatalogApp)x).Id);
         RestoreSelection(_host, hostId, x => ((CatalogApp)x).Id);
@@ -307,6 +309,7 @@ internal sealed class MainForm : Form
 
     private static string InstallStatus(LocalProgram? local, AppRelease release)
     {
+        if (release.IsArchive) return "ZIP 다운로드 가능";
         if (local is null) return "설치 가능";
         if (local.InstalledPlatform.Length > 0 && local.InstalledPlatform != release.Platform) return "다른 Windows용";
         if (!Version.TryParse(local.InstalledVersion, out _)) return "설치 버전 미확인";
@@ -314,13 +317,15 @@ internal sealed class MainForm : Form
         return compare < 0 ? "업데이트 가능" : compare == 0 ? "최신" : "로컬 버전이 높음";
     }
 
+    private static string ReleaseVersion(AppRelease? release, string missing = "배포본 없음") => release is null ? missing : release.Version + (release.IsPrerelease ? " · 시험판" : "");
+
     private void ShowDetails()
     {
         var app = Selected<CatalogApp>(_catalog);
         _details.Text = app is null ? _remote.Apps.Count == 0 && ActivePairing != null ? "호스트가 배포한 프로그램이 아직 없습니다. 호스트 PC의 ‘호스트 관리’에서 저장소를 선택하고 GitHub 동기화를 진행하세요." : "프로그램을 선택하면 설명과 변경 내역이 표시됩니다. 호스트 연결은 ‘설정 → 클라이언트 · 연결’에서 진행합니다." : Describe(app);
     }
 
-    private static string Describe(CatalogApp app) => app.Name + "\r\n" + (app.GitHubRepository.Length > 0 ? "GitHub: " + app.GitHubRepository + "\r\n설치 파일과 설명은 요청할 때 호스트가 받아 전달합니다.\r\n" : "") + app.Description + "\r\n\r\n" + string.Join("\r\n\r\n", app.Releases.OrderByDescending(r => Platforms.Numeric(r.Version)).ThenBy(r => r.Platform).Select(r => $"v{r.Version}  ·  {Platforms.Label(r.Platform)}  ·  {r.PublishedUtc.LocalDateTime:yyyy-MM-dd}\r\n{r.Notes}\r\n{r.FileName}  ({r.Size / 1048576d:N1} MB)"));
+    private static string Describe(CatalogApp app) => app.Name + "\r\n" + (app.GitHubRepository.Length > 0 ? "GitHub: " + app.GitHubRepository + "\r\n설치 파일과 설명은 요청할 때 호스트가 받아 전달합니다.\r\n" : "") + app.Description + "\r\n\r\n" + string.Join("\r\n\r\n", app.Releases.OrderByDescending(r => Platforms.Numeric(r.Version)).ThenBy(r => r.Platform).Select(r => $"v{r.Version}  ·  {Platforms.Label(r.Platform)}{(r.IsPrerelease ? "  ·  시험판" : "")}{(r.IsArchive ? "  ·  ZIP 다운로드" : "")}  ·  {r.PublishedUtc.LocalDateTime:yyyy-MM-dd}\r\n{r.Notes}\r\n{r.FileName}  ({r.Size / 1048576d:N1} MB)"));
 
     private void ShowHostHistory()
     {
@@ -628,6 +633,13 @@ internal sealed class MainForm : Form
         if (_busy || selected is null) return;
         var release = Platforms.Latest(selected, TargetPlatform);
         if (release is null) { _status.Text = "선택한 Windows용 배포본이 없습니다."; return; }
+        if (release.IsArchive)
+        {
+            var trial = release.IsPrerelease ? " · 시험판" : "";
+            if (MessageBox.Show(this, $"{selected.Name} {release.Version}{trial}\n{Platforms.Label(release.Platform)} · {release.Size / 1048576d:N1} MB\n\n이 배포본은 ZIP 압축 파일입니다. Program Manager는 파일만 다운로드하며 자동으로 설치, 압축 해제 또는 ‘내 프로그램’ 등록을 하지 않습니다.\n\nWindows 다운로드 폴더에 저장할까요?", "ZIP 다운로드 · " + Program.DisplayName, MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) != DialogResult.OK) return;
+            await DownloadArchiveAsync(selected, release);
+            return;
+        }
         if (TargetPlatform != Platforms.Current) { _status.Text = "다른 Windows용 설치 파일입니다. 이 PC에 맞는 항목을 선택하세요."; return; }
         var old = _state.FindInstalled(selected.Id, _fingerprint);
         if (Version.TryParse(old?.InstalledVersion, out _) && Platforms.Numeric(old!.InstalledVersion) > Platforms.Numeric(release.Version))
@@ -683,11 +695,37 @@ internal sealed class MainForm : Form
         });
     }
 
+    private async Task DownloadArchiveAsync(CatalogApp selected, AppRelease release, string? downloadsFolder = null)
+    {
+        await RunAsync("호스트에서 ZIP 파일 준비 / 다운로드 중…", async token =>
+        {
+            var info = ActivePairing ?? throw new InvalidOperationException("호스트 연결이 필요합니다.");
+            using var client = new CatalogClient(info);
+            var fresh = await client.FetchCatalogAsync(token);
+            var app = fresh.Apps.Single(a => a.Id == selected.Id);
+            var verifiedRelease = app.Releases.Single(r => r.Platform == release.Platform && Platforms.Numeric(r.Version) == Platforms.Numeric(release.Version));
+            if (!verifiedRelease.IsArchive || !SameInstaller(selected, release, app, verifiedRelease)) throw new InvalidDataException("배포 파일 정보가 변경되었습니다. 목록을 새로고침한 후 다시 확인하세요.");
+            var downloads = Path.GetFullPath(downloadsFolder ?? ArchiveDownloads.DownloadsFolder());
+            Directory.CreateDirectory(downloads);
+            var staging = Path.Combine(downloads, ".program-manager-" + Guid.NewGuid().ToString("N") + ".tmp");
+            Directory.CreateDirectory(staging);
+            try
+            {
+                var package = await client.DownloadAsync(app, verifiedRelease, staging, new Progress<int>(p => { _progress.Style = ProgressBarStyle.Continuous; _progress.Value = Math.Max(0, Math.Min(100, p)); }), token);
+                token.ThrowIfCancellationRequested();
+                var destination = ArchiveDownloads.MoveVerified(package, verifiedRelease.FileName, downloads);
+                _status.Text = "ZIP 파일을 다운로드했습니다 · " + destination;
+            }
+            finally { if (Directory.Exists(staging)) Directory.Delete(staging, true); }
+        });
+    }
+
     internal static bool SameInstaller(CatalogApp selected, AppRelease release, CatalogApp current, AppRelease candidate) =>
         selected.Id == current.Id && selected.GitHubRepository == current.GitHubRepository
         && release.Platform == candidate.Platform && Platforms.Numeric(release.Version) == Platforms.Numeric(candidate.Version)
         && release.Size == candidate.Size && release.Sha256 == candidate.Sha256 && release.FileName == candidate.FileName
-        && release.GitHubAssetId == candidate.GitHubAssetId && release.GitHubTag == candidate.GitHubTag && release.PublishedUtc == candidate.PublishedUtc;
+        && release.GitHubAssetId == candidate.GitHubAssetId && release.GitHubTag == candidate.GitHubTag && release.PublishedUtc == candidate.PublishedUtc
+        && release.IsPrerelease == candidate.IsPrerelease;
 
     private async Task CheckUpdatesAsync()
     {

@@ -124,6 +124,30 @@ internal static class GitHubTransportChecks
             var error = await Reject(() => connected.DownloadAsync(beforeRemoval, beforeRemoval.Releases.Single(), output), "removed upstream app is explained");
             Assert(error.Message.Contains("새로고침"), "server preparation failure returns helpful text");
         }
+        // Archive transfer uses the same verified cache/TLS path, while old clients keep a valid installer-only catalog.
+        store.GitHub = api;
+        release.FileName = "Tool.zip";
+        JsonFiles.Write(Path.Combine(storePath, "catalog.json"), catalog);
+        using (var archives = new CatalogClient(info))
+        {
+            var archiveApp = (await archives.FetchCatalogAsync()).Apps.Single();
+            Assert(archiveApp.Latest!.IsArchive, "archive-aware client receives ZIP metadata");
+            var archivePath = await archives.DownloadAsync(archiveApp, archiveApp.Latest, output);
+            Assert(Path.GetExtension(archivePath) == ".zip" && File.ReadAllBytes(archivePath).SequenceEqual(body), "ZIP receives size/hash verified bytes without execution");
+            archiveApp.Latest.FileName = "../../hostile.zip";
+            await Reject(() => Task.FromResult(CatalogRules.Validate(new Catalog { Apps = [archiveApp] })), "ZIP filename traversal rejected");
+        }
+        foreach (var capability in new[] { 0, 1 })
+        {
+            using var tcp = new TcpClient();
+            await tcp.ConnectAsync(info.Host, info.Port);
+            using var tls = new SslStream(tcp.GetStream(), false, (_, cert, _, _) => cert is not null && Hash(cert.GetRawCertData()) == info.Fingerprint);
+            await tls.AuthenticateAsClientAsync(info.Host, null, SslProtocols.Tls12, false);
+            await Write(tls, new { Protocol = 1, Operation = "catalog", Token = info.Token, Capabilities = capability });
+            using var response = await Read(tls);
+            if (capability == 0) Assert(response.RootElement.GetProperty("ErrorCode").GetString() == "client_update_required", "pre-GitHub client gets required upgrade even for ZIP-only catalog");
+            else Assert(response.RootElement.GetProperty("Catalog").GetProperty("Apps").GetArrayLength() == 0 && response.RootElement.GetProperty("RefreshWarning").GetString()!.Contains("ZIP"), "older GitHub clients get a valid catalog and ZIP upgrade guidance");
+        }
         await server.StopAsync();
         await ManagerUpdateRoutingAsync(folder, identity, body);
         Console.WriteLine("PASS: GitHub transport identity/hash/snapshot, offline HTML integrity, failure cleanup, legacy compatibility and safe server errors");

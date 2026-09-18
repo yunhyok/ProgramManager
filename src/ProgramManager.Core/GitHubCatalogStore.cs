@@ -83,6 +83,10 @@ public sealed partial class CatalogStore
         var catalog = Read();
         var selectedNames = new HashSet<string>(selected.Select(s => s.Repository), StringComparer.OrdinalIgnoreCase);
         catalog.Apps.RemoveAll(a => a.GitHubRepository != "" && !selectedNames.Contains(a.GitHubRepository));
+        // Explicitly disabling previews also removes cached previews when GitHub is unavailable.
+        foreach (var selection in selected.Where(s => !s.IncludePrereleases))
+            catalog.Apps.SingleOrDefault(a => a.GitHubRepository.Equals(selection.Repository, StringComparison.OrdinalIgnoreCase))?.Releases.RemoveAll(r => r.IsPrerelease);
+        catalog.Apps.RemoveAll(a => a.Releases.Count == 0);
         for (var i = 0; i < checks.Count; i++)
         {
             var app = checks[i].App;
@@ -129,24 +133,50 @@ public sealed partial class CatalogStore
             var slug = Regex.Replace(repoName.ToLowerInvariant(), "[^a-z0-9-]", "-");
             var app = new CatalogApp { Id = "gh-" + slug.Substring(0, Math.Min(slug.Length, 48)) + "-" + Key(info.FullName.ToLowerInvariant()).Substring(0, 8), Name = repoName, Description = info.Description, GitHubRepository = info.FullName };
             var versions = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var release in releases.OrderByDescending(r => CatalogRules.Version(r.Version)))
+            var eligible = releases.Where(r => !r.Draft && r.Version != "" && (selection.IncludePrereleases || !r.Prerelease))
+                .OrderByDescending(r => CatalogRules.Version(r.Version)).ThenBy(r => r.Prerelease).ThenByDescending(r => r.PublishedUtc).Take(30).ToList();
+            foreach (var release in eligible)
             {
+                if (versions.Contains(release.Version + "/win10-x64") && versions.Contains(release.Version + "/win7")) continue;
+                if (release.MetadataError != "") throw new InvalidDataException(release.MetadataError);
                 foreach (var platform in new[] { "win10-x64", "win7" })
                 {
                     var pattern = platform == "win7" ? selection.LegacyAssetPattern : selection.ModernAssetPattern;
+                    if (versions.Contains(release.Version + "/" + platform)) continue;
                     var asset = SelectAsset(release, platform, pattern, info.FullName);
                     if (asset is null || !versions.Add(release.Version + "/" + platform)) continue;
-                    app.Releases.Add(new AppRelease { Platform = platform, Version = release.Version, Notes = release.Notes, FileName = asset.Name, Sha256 = asset.Sha256, Size = asset.Size, PublishedUtc = release.PublishedUtc, GitHubAssetId = asset.Id, GitHubTag = release.Tag });
+                    var notes = release.Prerelease ? "시험판 · " + release.Tag + "\n" + release.Notes : release.Notes;
+                    app.Releases.Add(new AppRelease { Platform = platform, Version = release.Version, Notes = notes.Substring(0, Math.Min(notes.Length, 30000)), FileName = asset.Name, Sha256 = asset.Sha256, Size = asset.Size, PublishedUtc = release.PublishedUtc, GitHubAssetId = asset.Id, GitHubTag = release.Tag, IsPrerelease = release.Prerelease });
                 }
             }
-            if (app.Releases.Count == 0) throw new InvalidDataException(info.FullName + ": 배포할 설치 파일이 없습니다. 정식 숫자 버전(v1.2.3)의 GitHub Release에 Setup/Install EXE 또는 MSI를 올리거나 파일 패턴을 지정하세요. ZIP은 지원하지 않습니다.");
-            if (selection.ModernAssetPattern != "" && app.Releases.All(r => r.Platform != "win10-x64")) throw new InvalidDataException(info.FullName + ": Windows 10/11 파일 패턴과 일치하는 EXE/MSI가 없습니다.");
-            if (selection.LegacyAssetPattern != "" && app.Releases.All(r => r.Platform != "win7")) throw new InvalidDataException(info.FullName + ": Windows 7 파일 패턴과 일치하는 EXE/MSI가 없습니다.");
+            if (app.Releases.Count == 0) throw new InvalidDataException(info.FullName + ": " + UnavailableReason(releases, eligible, selection));
+            if (selection.ModernAssetPattern != "" && app.Releases.All(r => r.Platform != "win10-x64")) throw new InvalidDataException(info.FullName + ": Windows 10/11 파일 패턴과 일치하는 EXE/MSI/ZIP이 없습니다.");
+            if (selection.LegacyAssetPattern != "" && app.Releases.All(r => r.Platform != "win7")) throw new InvalidDataException(info.FullName + ": Windows 7 파일 패턴과 일치하는 EXE/MSI/ZIP이 없습니다.");
             CatalogRules.Validate(new Catalog { Apps = [app] });
             check.App = app;
         }
         catch (Exception ex) when (ex is InvalidDataException or RegexMatchTimeoutException or FormatException) { check.Error = ex.Message; }
         return check;
+    }
+
+    private static string UnavailableReason(List<GitHubRelease> releases, List<GitHubRelease> eligible, GitHubSelection selection)
+    {
+        if (releases.Count == 0) return "GitHub Release가 없습니다. EXE/MSI/ZIP을 첨부한 릴리스를 게시하세요.";
+        var published = releases.Where(r => !r.Draft).ToList();
+        if (published.Count == 0) return "초안(Draft) 릴리스만 있습니다. 릴리스를 게시해야 배포할 수 있습니다.";
+        var versioned = published.Where(r => r.Version != "").ToList();
+        if (versioned.Count == 0) return "지원하는 버전 태그가 없습니다. v1.2.3 또는 v1.2.3-rc.1 형식을 사용하세요. 확인한 태그: " + string.Join(", ", published.Take(3).Select(r => r.Tag));
+        if (eligible.Count == 0) return "시험판이 제외되어 있습니다. ‘시험판 포함’을 체크하면 다시 판정합니다. 확인한 태그: " + string.Join(", ", versioned.Take(3).Select(r => r.Tag));
+        var assets = eligible.SelectMany(r => r.Assets).ToList();
+        if (assets.Count == 0)
+        {
+            var other = eligible.SelectMany(r => r.OtherAssetNames).Distinct().ToList();
+            return other.Count == 0 ? "릴리스에 첨부된 배포 파일이 없습니다. GitHub의 자동 생성 소스 압축 파일은 배포 파일로 취급하지 않습니다."
+                : "지원하는 EXE/MSI/ZIP이 없습니다. 첨부 파일: " + string.Join(", ", other.Take(4));
+        }
+        var names = string.Join(", ", assets.Select(a => a.Name).Distinct().Take(4));
+        if (selection.ModernAssetPattern != "" || selection.LegacyAssetPattern != "") return "파일 패턴과 일치하는 배포 파일이 없습니다. 패턴을 확인하세요. 확인한 EXE/MSI/ZIP: " + names;
+        return "자동 선택할 Windows 배포 파일이 없습니다. Setup/Install EXE, MSI 또는 ZIP인지, 대상 아키텍처가 맞는지 확인한 뒤 파일 패턴을 지정하세요. 확인한 파일: " + names;
     }
 
     private static bool ExpectedRepositoryFailure(Exception ex, CancellationToken token) => !token.IsCancellationRequested && ex is HttpRequestException or IOException or InvalidDataException or JsonException or FormatException or RegexMatchTimeoutException or OperationCanceledException;
@@ -158,13 +188,18 @@ public sealed partial class CatalogStore
         {
             if (pattern != "") return Regex.IsMatch(a.Name, "\\A" + Regex.Escape(pattern).Replace("\\*", ".*").Replace("\\?", ".") + "\\z", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
             var name = a.Name.ToLowerInvariant();
-            if (!name.Contains("setup") && !name.Contains("install") && !name.EndsWith(".msi", StringComparison.Ordinal)) return false;
+            if (!name.Contains("setup") && !name.Contains("install") && !name.EndsWith(".msi", StringComparison.Ordinal) && !name.EndsWith(".zip", StringComparison.Ordinal)) return false;
+            if (Regex.IsMatch(name, "(?:^|[-_.])(linux|darwin|macos|osx|android)(?:[-_.]|$)")) return false;
             if (Regex.IsMatch(name, "(?:^|[-_.])(arm64|aarch64|arm)(?:[-_.]|$)")) return false;
             if (platform != "win7" && Regex.IsMatch(name, "(?:^|[-_.])(x86|win32)(?:[-_.]|$)")) return false;
-            var legacy = Regex.IsMatch(name, "win(?:dows)?[-_.]?7|net[-_.]?4[._-]?[0-9]|legacy", RegexOptions.CultureInvariant);
-            return platform == "win7" ? legacy : !legacy;
+            var modern = Regex.IsMatch(name, "win(?:dows)?[-_.]?(?:10|11)", RegexOptions.CultureInvariant);
+            var legacy = Regex.IsMatch(name, "win(?:dows)?[-_.]?7|legacy", RegexOptions.CultureInvariant)
+                || !modern && Regex.IsMatch(name, "net[-_.]?4[._-]?[0-9]", RegexOptions.CultureInvariant);
+            return platform == "win7" ? legacy : modern || !legacy;
         }).ToList();
-        if (assets.Count > 1) throw new InvalidDataException(repository + " " + release.Tag + " (" + platform + "): 설치 파일 후보가 여러 개입니다 (" + string.Join(", ", assets.Select(a => a.Name)) + "). 저장소 선택에서 파일 패턴을 지정하세요.");
+        // Prefer a setup when both formats are published; an explicit pattern can select the ZIP.
+        if (pattern == "" && assets.Any(a => !a.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))) assets.RemoveAll(a => a.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
+        if (assets.Count > 1) throw new InvalidDataException(repository + " " + release.Tag + " (" + platform + "): 배포 파일 후보가 여러 개입니다 (" + string.Join(", ", assets.Select(a => a.Name)) + "). 저장소 선택에서 파일 패턴을 지정하세요.");
         return assets.SingleOrDefault();
     }
 

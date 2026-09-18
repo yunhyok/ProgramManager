@@ -49,6 +49,8 @@ internal static class DesktopCheckRunner
                 return 0;
             }
             Checks(root);
+            PrereleaseSelectionChecks.Run();
+            ZipDownloadChecks.Run(root);
             CheckCatalogActions(root);
             OfflineDocumentationChecks.Run(root);
             CheckRecentPrograms(root);

@@ -108,10 +108,10 @@ internal sealed class InstalledPrograms
         try { var info = FileVersionInfo.GetVersionInfo(path); var product = NumericVersion(info.ProductVersion ?? ""); return product.Length > 0 ? product : NumericVersion(info.FileVersion ?? ""); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) { return ""; }
     }
-    public static bool IsUpdate(LocalProgram program, AppRelease release) => program.InstalledPlatform == Platforms.Current && release.Platform == Platforms.Current
+    public static bool IsUpdate(LocalProgram program, AppRelease release) => !release.IsArchive && program.InstalledPlatform == Platforms.Current && release.Platform == Platforms.Current
         && Executable(program.Path).Length > 0 && Version.TryParse(program.InstalledVersion, out _)
         && Platforms.Numeric(program.InstalledVersion) < Platforms.Numeric(release.Version);
-    public static bool ConfirmsInstall(LocalProgram? program, AppRelease release, int exitCode) => (exitCode == 0 || exitCode == 3010) && release.Platform == Platforms.Current
+    public static bool ConfirmsInstall(LocalProgram? program, AppRelease release, int exitCode) => !release.IsArchive && (exitCode == 0 || exitCode == 3010) && release.Platform == Platforms.Current
         && program != null && Executable(program.Path).Length > 0 && Version.TryParse(program.InstalledVersion, out _)
         && Platforms.Numeric(program.InstalledVersion) >= Platforms.Numeric(release.Version);
     internal static string IconPath(string value)
@@ -158,4 +158,42 @@ internal sealed class InstalledPrograms
         foreach (var file in files) yield return file;
         foreach (var directory in directories) foreach (var file in Files(directory, pattern, depth - 1)) yield return file;
     }
+}
+
+internal static class ArchiveDownloads
+{
+    private static readonly Guid DownloadsFolderId = new("374DE290-123F-4565-9164-39C4925E467B");
+
+    public static string DownloadsFolder()
+    {
+        var id = DownloadsFolderId;
+        var result = SHGetKnownFolderPath(ref id, 0, IntPtr.Zero, out var pointer);
+        try
+        {
+            if (result != 0) Marshal.ThrowExceptionForHR(result);
+            return Path.GetFullPath(Marshal.PtrToStringUni(pointer) ?? throw new IOException("Windows 다운로드 폴더를 찾지 못했습니다."));
+        }
+        finally { if (pointer != IntPtr.Zero) Marshal.FreeCoTaskMem(pointer); }
+    }
+
+    public static string MoveVerified(string source, string originalFileName, string? downloadsFolder = null)
+    {
+        source = Path.GetFullPath(source);
+        CatalogRules.PackageName(originalFileName);
+        if (!Path.GetExtension(originalFileName).Equals(".zip", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("ZIP 파일 이름이 올바르지 않습니다.");
+        var directory = Path.GetFullPath(downloadsFolder ?? DownloadsFolder());
+        Directory.CreateDirectory(directory);
+        var stem = Path.GetFileNameWithoutExtension(originalFileName);
+        var extension = Path.GetExtension(originalFileName);
+        for (var suffix = 0; ; suffix++)
+        {
+            var destination = Path.Combine(directory, suffix == 0 ? originalFileName : $"{stem} ({suffix}){extension}");
+            try { File.Move(source, destination); return destination; }
+            catch (IOException) when (File.Exists(source) && File.Exists(destination)) { }
+        }
+    }
+
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    private static extern int SHGetKnownFolderPath(ref Guid rfid, uint flags, IntPtr token, out IntPtr path);
 }
