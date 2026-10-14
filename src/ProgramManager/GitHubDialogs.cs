@@ -55,6 +55,8 @@ internal static class GitHubDialogs
         grid.Columns.Insert(0, new DataGridViewCheckBoxColumn { HeaderText = "배포", AutoSizeMode = DataGridViewAutoSizeColumnMode.None, Width = 70 });
         grid.Columns.RemoveAt(6);
         grid.Columns.Insert(6, new DataGridViewCheckBoxColumn { HeaderText = "시험판 포함", AutoSizeMode = DataGridViewAutoSizeColumnMode.None, Width = 92 });
+        grid.Columns[6].DisplayIndex = 2;
+        grid.Columns[6].ToolTipText = "개발 중인 시험판(Pre-release)도 배포하려면 체크하세요.";
         var weights = new[] { 7, 28, 23, 23, 25, 35, 12 };
         for (var index = 0; index < weights.Length; index++) grid.Columns[index].FillWeight = weights[index];
         grid.Columns[1].AutoSizeMode = DataGridViewAutoSizeColumnMode.AllCells;
@@ -80,7 +82,7 @@ internal static class GitHubDialogs
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         var title = Ui.Label(account + " · 클라이언트에 공유할 프로그램에 체크하세요", 14, true); title.Dock = DockStyle.Fill;
-        var guide = Ui.Label("EXE/MSI 설치 파일과 ZIP 다운로드 파일을 검사한 뒤 배포할 저장소를 선택합니다. 파일 자체는 받지 않습니다.\n‘시험판 포함’을 선택하면 시험판 릴리스도 다시 평가합니다. 후보가 여러 개면 파일 패턴을 수정하세요 (예: *Setup*.exe / *win7*.exe). 모든 체크를 해제하면 배포 목록이 비워집니다.", 9); guide.Dock = DockStyle.Fill;
+        var guide = Ui.Label("개발 중인 프로그램은 저장소 이름 옆 ‘시험판 포함’을 체크한 뒤 ‘배포’를 체크하세요. 시험판(Pre-release)만 있는 저장소도 선택할 수 있습니다.\nEXE/MSI는 설치, ZIP은 다운로드합니다. 검사 중에는 파일을 받지 않습니다. 후보가 여러 개면 파일 패턴을 수정하세요 (예: *Setup*.exe / *win7*.exe). 모든 ‘배포’ 체크를 해제하면 배포 목록이 비워집니다.", 9); guide.Dock = DockStyle.Fill;
         layout.Controls.Add(title, 0, 0); layout.Controls.Add(guide, 0, 1); layout.Controls.Add(grid, 0, 2);
         var details = new TextBox { Name = "RepositoryDetails", AccessibleName = "선택한 저장소 검사 결과", Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, BackColor = Color.White };
         layout.Controls.Add(details, 0, 3);
@@ -110,6 +112,13 @@ internal static class GitHubDialogs
         {
             row.Tag = result;
             var available = result.App != null;
+            var previewSelection = Selection(row);
+            var previewsAvailable = false;
+            if (!previewSelection.IncludePrereleases && result.Releases?.Any(r => !r.Draft && r.Prerelease && r.Version != "") == true)
+            {
+                previewSelection.IncludePrereleases = true;
+                previewsAvailable = CatalogStore.EvaluateGitHubRepository(result.Repository, result.Releases, previewSelection).App?.Releases.Any(r => r.IsPrerelease) == true;
+            }
             if (!available && !current.Any(s => s.Repository.Equals(result.Repository.FullName, StringComparison.OrdinalIgnoreCase))) row.Cells[0].Value = false;
             row.Cells[0].ReadOnly = !available && !Convert.ToBoolean(row.Cells[0].Value);
             row.Cells[2].ReadOnly = row.Cells[3].ReadOnly = row.Cells[6].ReadOnly = result.Releases is null;
@@ -119,7 +128,8 @@ internal static class GitHubDialogs
             var installers = string.Join(", ", result.App?.Releases.Where(r => !r.IsArchive).Select(r => r.Platform == Platforms.Legacy ? "Win 7/8" : "Win 10/11").Distinct() ?? []);
             var archives = string.Join(", ", result.App?.Releases.Where(r => r.IsArchive).Select(r => r.Platform == Platforms.Legacy ? "Win 7/8" : "Win 10/11").Distinct() ?? []);
             row.Cells[5].Value = available
-                ? "배포 가능" + (Selection(row).IncludePrereleases ? " · 시험판 포함" : "") + " · " + (installers.Length > 0 ? "설치 EXE/MSI: " + installers : "") + (installers.Length > 0 && archives.Length > 0 ? " · " : "") + (archives.Length > 0 ? "ZIP 다운로드: " + archives : "")
+                ? "배포 가능" + (Selection(row).IncludePrereleases ? " · 시험판 포함" : previewsAvailable ? " · 시험판도 있음" : "") + " · " + (installers.Length > 0 ? "설치 EXE/MSI: " + installers : "") + (installers.Length > 0 && archives.Length > 0 ? " · " : "") + (archives.Length > 0 ? "ZIP 다운로드: " + archives : "")
+                : previewsAvailable ? (Convert.ToBoolean(row.Cells[0].Value) ? "기존 선택 유지 · " : "") + "시험판 있음 · ‘시험판 포함’ 체크"
                 : (Convert.ToBoolean(row.Cells[0].Value) ? "기존 선택 유지 · " : "선택 불가 · ") + reason;
             row.Cells[5].ToolTipText = available ? string.Join("\r\n", result.App!.Releases.Select(release => release.GitHubTag + " · " + release.FileName + (release.IsPrerelease ? " · 시험판" : ""))) : result.Error;
             ShowDetails();

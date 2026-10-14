@@ -24,8 +24,10 @@ internal static class PrereleaseSelectionChecks
                 var grid = Descendants(dialog).OfType<DataGridView>().Single();
                 var row = grid.Rows[0];
                 Check(grid.Columns.Count == 7 && grid.Columns[6] is DataGridViewCheckBoxColumn && grid.Columns.Cast<DataGridViewColumn>().Take(6).Select(column => column.HeaderText).SequenceEqual(["배포", "GitHub 저장소", "Win 10/11 파일 패턴", "Win 7 파일 패턴", "설명", "배포 가능 여부"]), "preview checkbox is appended after the existing columns");
+                Check(grid.Columns[6].DisplayIndex == grid.Columns[1].DisplayIndex + 1, "preview checkbox is displayed next to the repository name");
                 Check(!Convert.ToBoolean(row.Cells[6].Value) && !row.Cells[6].ReadOnly, "preview checkbox defaults to false and is editable after cached metadata is available");
                 Check(Convert.ToString(row.Cells[5].Value)!.Contains("설치 EXE/MSI") && !Convert.ToString(row.Cells[5].Value)!.Contains("ZIP 다운로드"), "stable installer availability is separate from excluded preview ZIP");
+                Check(Convert.ToString(row.Cells[5].Value)!.Contains("시험판도 있음"), "mixed repository advertises its optional preview releases");
                 row.Cells[6].Value = true;
                 Check(checks == 1 && Convert.ToString(row.Cells[5].Value)!.Contains("시험판 포함") && Convert.ToString(row.Cells[5].Value)!.Contains("ZIP 다운로드"), "preview toggle reevaluates cached releases without a second API call");
                 grid.CurrentCell = row.Cells[1]; row.Selected = true;
@@ -36,6 +38,51 @@ internal static class PrereleaseSelectionChecks
                 ((Button)dialog.AcceptButton!).PerformClick();
             });
         Check(selected?.Count == 1 && selected[0].IncludePrereleases, "saving retains the preview selection");
+
+        var previewChecks = 0;
+        var previewOnly = RunDialog([new GitHubRepository { FullName = "sample-account/development-tool" }], [],
+            (repository, selection, _) =>
+            {
+                previewChecks++;
+                return Task.FromResult(CatalogStore.EvaluateGitHubRepository(repository,
+                [new GitHubRelease { Tag = "v0.2.0-rc.1", Version = "0.2", Prerelease = true, PublishedUtc = DateTimeOffset.Parse("2026-09-11T00:00:00Z"), Assets = [new GitHubAsset { Id = 3, Name = "Development-Setup.exe", Size = 1 }] }], selection));
+            }, dialog =>
+            {
+                if (!((Button)dialog.AcceptButton!).Enabled) return;
+                var grid = Descendants(dialog).OfType<DataGridView>().Single();
+                var row = grid.Rows[0];
+                Check(row.Cells[0].ReadOnly && !row.Cells[6].ReadOnly && Convert.ToString(row.Cells[5].Value) == "시험판 있음 · ‘시험판 포함’ 체크", "preview-only repository points to the editable opt-in instead of an unavailable status");
+                row.Cells[6].Value = true;
+                Check(!row.Cells[0].ReadOnly && ((GitHubRepositoryCheck)row.Tag!).App!.Latest is { IsPrerelease: true, IsArchive: false, GitHubTag: "v0.2.0-rc.1" }, "preview-only EXE becomes selectable for installation");
+                row.Cells[0].Value = true;
+                row.Cells[6].Value = false;
+                Check(row.Cells[0].ReadOnly && !Convert.ToBoolean(row.Cells[0].Value), "disabling previews removes a newly selected preview-only repository");
+                row.Cells[6].Value = true;
+                row.Cells[0].Value = true;
+                Check(previewChecks == 1, "preview-only toggles reuse metadata without more GitHub requests");
+                ((Button)dialog.AcceptButton!).PerformClick();
+            });
+        Check(previewOnly?.Count == 1 && previewOnly[0].IncludePrereleases && previewOnly[0].Repository == "sample-account/development-tool", "preview-only repository and its opt-in are saved together");
+
+        foreach (var brokenPreview in new[] { false, true })
+            RunDialog([new GitHubRepository { FullName = "sample-account/mixed-tool" }], [],
+                (repository, selection, _) => Task.FromResult(CatalogStore.EvaluateGitHubRepository(repository,
+                [
+                    new GitHubRelease { Tag = "v1.0", Version = "1.0", PublishedUtc = DateTimeOffset.Parse("2026-09-10T00:00:00Z"), Assets = brokenPreview ? [new GitHubAsset { Id = 4, Name = "Stable-Setup.exe", Size = 1 }] : [] },
+                    new GitHubRelease { Tag = "v2.0-rc.1", Version = "2.0", Prerelease = true, PublishedUtc = DateTimeOffset.Parse("2026-09-11T00:00:00Z"), MetadataError = brokenPreview ? "broken preview metadata" : "", Assets = [new GitHubAsset { Id = 5, Name = "Preview-Setup.exe", Size = 1 }] }
+                ], selection)), dialog =>
+                {
+                    if (!((Button)dialog.AcceptButton!).Enabled) return;
+                    var row = Descendants(dialog).OfType<DataGridView>().Single().Rows[0];
+                    var status = Convert.ToString(row.Cells[5].Value)!;
+                    Check(brokenPreview ? !status.Contains("시험판") && !row.Cells[0].ReadOnly : status == "시험판 있음 · ‘시험판 포함’ 체크" && row.Cells[0].ReadOnly,
+                        "preview guidance depends on deployable assets, including when stable releases have none");
+                    Check(!Convert.ToBoolean(row.Cells[6].Value), "preview availability check does not enable previews implicitly");
+                    row.Cells[6].Value = true;
+                    Check(brokenPreview ? ((GitHubRepositoryCheck)row.Tag!).App is null && row.Cells[0].ReadOnly : ((GitHubRepositoryCheck)row.Tag!).App!.Latest!.IsPrerelease && !row.Cells[0].ReadOnly,
+                        "opting in exposes malformed preview errors or enables the only deployable preview");
+                    ((Button)dialog.CancelButton!).PerformClick();
+                });
 
         var retained = RunDialog([], [new GitHubSelection { Repository = "sample-account/failed", IncludePrereleases = true }],
             (repository, selection, _) => Task.FromResult(new GitHubRepositoryCheck { Repository = repository, Error = "token rejected" }),
