@@ -37,6 +37,9 @@ jobs:
       - name: Check, publish, and build both installers
         shell: pwsh
         run: ./tools/build.ps1
+      - name: Verify both installer destinations and reinstalls
+        shell: pwsh
+        run: Get-ChildItem artifacts/installers/*.exe | ForEach-Object { ./scripts/test-installer-path.ps1 -Installer $_.FullName }
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

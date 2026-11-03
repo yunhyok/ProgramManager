@@ -17,10 +17,13 @@ internal static class UpdateInstallerChecks
         Assert(info.FileName == installer && info.WorkingDirectory == folder && !info.UseShellExecute &&
             info.CreateNoWindow && info.WindowStyle == ProcessWindowStyle.Hidden, "installer executes directly without a shell");
         var arguments = SplitArguments(info.Arguments);
-        Assert(arguments.Contains("/PMUPDATE") && arguments.Contains("/NOCLOSEAPPLICATIONS") &&
+        Assert(arguments.Contains("/CURRENTUSER") && arguments.Contains("/PMUPDATE") && arguments.Contains("/NOCLOSEAPPLICATIONS") &&
             arguments.Contains("/NORESTART") && arguments.Contains("/PMPID=2345") &&
             arguments.Contains("/PMDATA=" + data) && arguments.Contains("/DIR=" + install) &&
             arguments.Contains("/LOG=" + Path.Combine(data, UpdateInstaller.LogFileName)), "spaces, Unicode and ampersands round-trip as one argument");
+        var machine = UpdateInstaller.BuildStartInfo(installer, install, data, 2345, machineInstall: true);
+        Assert(machine.UseShellExecute && machine.WindowStyle == ProcessWindowStyle.Normal &&
+            machine.Arguments == "/ALLUSERS /SP- /NORESTART", "machine update uses the visible installer without user-owned install/data/rollback paths");
         var rootPath = Path.GetPathRoot(folder)!;
         var rootArguments = SplitArguments(UpdateInstaller.BuildStartInfo(installer, install, rootPath, 1).Arguments);
         Assert(rootArguments.Contains("/PMDATA=" + rootPath + "."), "root data directory avoids a trailing-backslash quote ambiguity");

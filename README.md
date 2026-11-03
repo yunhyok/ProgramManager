@@ -178,3 +178,7 @@ Windows, .NET SDK 8, Inno Setup 6.3 이상 6.x가 필요합니다. .NET Framewor
 ## IntraDrop 통합
 
 현재 구현은 IntraDrop의 트레이 실행, 사용자별 설정과 인증된 연결 방식을 참고합니다. 카탈로그·다운로드 로직은 `src/ProgramManager.Core`, 화면은 WinForms 앱에 있습니다. 향후 IntraDrop과 통합할 때 공통 코어를 사용할 수 있으며, 현재 두 앱의 데이터와 실행은 독립적입니다.
+
+## Installer 0.5.2
+
+Fresh installs and reinstalls show the destination and Browse button. New all-user installs default to Windows Program Files; existing mode, path and settings remain intact. Current-user self-updates explicitly stay unelevated. Machine-wide updates open the standard visible installer for approval and path review; they never pass user data, rollback or executable paths into the elevated updater. If using a custom `--data-dir`, restart with that original option after a machine-wide update.

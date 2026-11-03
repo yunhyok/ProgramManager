@@ -3,7 +3,7 @@
   #error Inno Setup 6.3 or later in the 6.x series is required.
 #endif
 #define AppName "Program Manager"
-#define AppVersion "0.5.1"
+#define AppVersion "0.5.2"
 #define AppExe "ProgramManager.exe"
 #ifdef Legacy
   #define PublishDir "..\artifacts\publish\win7"
@@ -19,10 +19,14 @@ AppName={#AppName}
 AppVersion={#AppVersion}
 AppVerName={#AppName} {#AppVersion}
 AppPublisher=yunhyok
-DefaultDirName={localappdata}\Programs\Program Manager
+DisableDirPage=no
+UsePreviousAppDir=yes
+UsePreviousPrivileges=yes
+DefaultDirName={autopf}\Program Manager
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
-PrivilegesRequired=lowest
+PrivilegesRequired=admin
+PrivilegesRequiredOverridesAllowed=dialog
 OutputDir=..\artifacts\installers
 OutputBaseFilename={#OutputName}
 SetupIconFile=..\src\ProgramManager\app.ico
@@ -202,7 +206,8 @@ begin
   UpdateMode := Count > 0;
   Result := True;
   if UpdateMode then begin
-    if Count <> 1 then Result := False
+    // User-owned update paths must never enter an elevated install/rollback/relaunch.
+    if IsAdminInstallMode or (Count <> 1) then Result := False
     else Result := InitializeUpdate;
     if not Result then begin
       Log('Rejected invalid or unavailable Program Manager update handoff.');
@@ -350,7 +355,7 @@ begin
     Exe := AddBackslash(UpdateInstall) + '{#AppExe}';
     DataArgument := UpdateData;
     if Copy(DataArgument, Length(DataArgument), 1) = '\' then DataArgument := DataArgument + '.';
-    if not FileExists(Exe) or not Exec(Exe, '--tray --data-dir "' + DataArgument + '"',
+    if not FileExists(Exe) or not ExecAsOriginalUser(Exe, '--tray --data-dir "' + DataArgument + '"',
         UpdateInstall, SW_HIDE, ewNoWait, ResultCode) then begin
       WriteUpdateResult('failed', '업데이트 후 Program Manager를 다시 실행하지 못했습니다. 설치 로그를 확인하세요.');
       MsgBox('Program Manager를 다시 실행하지 못했습니다.' + #13#10 + '설치 로그: ' + UpdateLog, mbError, MB_OK);

@@ -24,23 +24,26 @@ public static class UpdateInstaller
     public const string ResultFileName = "update-result.ini";
     public const string LogFileName = "update-install.log";
 
-    public static bool IsInstalledApplication(string installDirectory)
+    public static bool IsInstalledApplication(string installDirectory) => InstallationHive(installDirectory) != null;
+
+    private static RegistryHive? InstallationHive(string installDirectory)
     {
         try
         {
             var directory = AbsolutePath(installDirectory);
-            if (!File.Exists(Path.Combine(directory, "ProgramManager.exe"))) return false;
+            if (!File.Exists(Path.Combine(directory, "ProgramManager.exe"))) return null;
+            foreach (var installationHive in new[] { RegistryHive.CurrentUser, RegistryHive.LocalMachine })
             foreach (var view in new[] { RegistryView.Registry32, RegistryView.Registry64 })
             {
                 if (view == RegistryView.Registry64 && !Environment.Is64BitOperatingSystem) continue;
-                using var hive = RegistryKey.OpenBaseKey(RegistryHive.CurrentUser, view);
+                using var hive = RegistryKey.OpenBaseKey(installationHive, view);
                 using var key = hive.OpenSubKey(UninstallKey);
                 if (key?.GetValue("InstallLocation") is string registered &&
-                    string.Equals(directory, AbsolutePath(registered), StringComparison.OrdinalIgnoreCase)) return true;
+                    string.Equals(directory, AbsolutePath(registered), StringComparison.OrdinalIgnoreCase)) return installationHive;
             }
         }
         catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException or System.Security.SecurityException) { }
-        return false;
+        return null;
     }
 
     public static ProcessStartInfo CreateStartInfo(string verifiedInstallerPath, string expectedSha256,
@@ -57,7 +60,7 @@ public static class UpdateInstaller
         using var file = OpenInstaller(verifiedInstallerPath);
         var info = ValidateAndCreate(file, expectedSha256, expectedVersion, installDirectory, dataDirectory, currentProcessId);
         var directory = AbsolutePath(dataDirectory);
-        WritePendingResult(directory, expectedVersion);
+        if (!info.UseShellExecute) WritePendingResult(directory, expectedVersion);
         using var process = Process.Start(info) ?? throw new IOException("업데이트 설치 프로그램을 시작하지 못했습니다.");
     }
 
@@ -78,7 +81,7 @@ public static class UpdateInstaller
         ValidateInstaller(file, hash, version);
         if (NormalizeVersion(version) < new Version(0, 3, 0, 0))
             throw new InvalidOperationException("이 설치 파일은 자동 업데이트를 지원하지 않습니다. 0.3.0 이상이 필요합니다.");
-        return BuildStartInfo(file.Name, install, data, pid);
+        return BuildStartInfo(file.Name, install, data, pid, InstallationHive(install) == RegistryHive.LocalMachine);
     }
 
     internal static void ValidateInstaller(FileStream file, string expectedHash, string expectedVersion)
@@ -105,16 +108,26 @@ public static class UpdateInstaller
         return new Version(result.Major, result.Minor, Math.Max(0, result.Build), Math.Max(0, result.Revision));
     }
 
-    internal static ProcessStartInfo BuildStartInfo(string file, string install, string data, int pid)
+    internal static ProcessStartInfo BuildStartInfo(string file, string install, string data, int pid, bool machineInstall = false)
     {
         file = AbsolutePath(file);
         install = AbsolutePath(install);
         data = AbsolutePath(data);
         if (pid <= 0) throw new ArgumentOutOfRangeException(nameof(pid));
+        if (machineInstall)
+            return new ProcessStartInfo
+            {
+                FileName = file,
+                // The visible standard installer owns machine registration; never elevate user-data handoff paths.
+                Arguments = "/ALLUSERS /SP- /NORESTART",
+                WorkingDirectory = Path.GetDirectoryName(file)!,
+                UseShellExecute = true,
+                WindowStyle = ProcessWindowStyle.Normal
+            };
         return new ProcessStartInfo
         {
             FileName = file,
-            Arguments = "/VERYSILENT /SP- /SUPPRESSMSGBOXES /NORESTART /NOCLOSEAPPLICATIONS /PMUPDATE /PMPID=" +
+            Arguments = "/CURRENTUSER /VERYSILENT /SP- /SUPPRESSMSGBOXES /NORESTART /NOCLOSEAPPLICATIONS /PMUPDATE /PMPID=" +
                 pid.ToString(CultureInfo.InvariantCulture) + " /PMDATA=" + Quote(data) + " /DIR=" + Quote(install) +
                 " /LOG=" + Quote(Path.Combine(data, LogFileName)),
             WorkingDirectory = Path.GetDirectoryName(file)!,
