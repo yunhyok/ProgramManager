@@ -14,3 +14,14 @@
 - 별도 읽기 전용 리뷰에서 배포 가능 여부에 따른 안내 개선을 반영했으며, 남은 기능·호환성 배포 차단점은 없었습니다.
 
 로컬 전체 로그는 `artifacts/build-0.5.1.log`, 화면과 배율별 결과는 `artifacts/layout/`에 있습니다. Windows 7 실기기 실행과 현재 PC의 설치본 업데이트는 수행하지 않았습니다.
+
+## 배포 확인
+
+배포 커밋은 `343486a05fec11d5bb1afa06bd128dcb4fefde4a`입니다. [태그 CI 38536926362](https://github.com/yunhyok/ProgramManager/actions/runs/38536926362)와 [main CI 38536926156](https://github.com/yunhyok/ProgramManager/actions/runs/38536926156)가 성공했습니다. [v0.5.1](https://github.com/yunhyok/ProgramManager/releases/tag/v0.5.1)은 최신 정식 릴리스로 게시됐으며 두 설치 파일과 `SHA256SUMS.txt`가 포함됩니다.
+
+공개 파일을 다시 다운로드해 크기, GitHub SHA-256, 매니페스트를 대조했고 원격 태그가 배포 커밋을 가리키는 것도 확인했습니다. 검증 결과는 `artifacts/release-0.5.1/verification.json`에 있습니다.
+
+| 대상 | 파일 크기 | SHA-256 |
+| --- | ---: | --- |
+| Windows 10/11 | 51,287,596 bytes | `24ea6abdda0529b43038399df306ec33488dbb82ce8aeaa1b60ab285b648a4e2` |
+| Windows 7/8 | 2,643,530 bytes | `b961492b79edca2f55bde2fb61d8fe989cb1e51d705956bf2c3e8cab2f8da08e` |
