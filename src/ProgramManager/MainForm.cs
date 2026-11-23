@@ -7,6 +7,7 @@ internal sealed class MainForm : Form
 {
     private readonly AppState _state;
     private readonly NotifyIcon _tray;
+    private readonly Icon? _ownedIcon;
     private readonly Icon _appUpdateIcon;
     private List<(LocalProgram Program, CatalogApp App, AppRelease Release)> _appUpdates = [];
     private bool _appBalloon;
@@ -53,7 +54,8 @@ internal sealed class MainForm : Form
         ClientSize = new Size(1110, 740);
         MinimumSize = new Size(900, 650);
         StartPosition = FormStartPosition.CenterScreen;
-        Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath) ?? SystemIcons.Application;
+        _ownedIcon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+        Icon = _ownedIcon ?? SystemIcons.Application;
         _appUpdateIcon = Ui.UpdateIcon(Icon);
 
         var shell = new TableLayoutPanel { Dock = DockStyle.Fill, AutoScroll = true, RowCount = 3, ColumnCount = 1, Padding = new Padding(24, 20, 24, 12) };
@@ -162,7 +164,9 @@ internal sealed class MainForm : Form
         {
             if (startInTray) Hide();
             await RunAsync("시작 중…", async _ => { LoadCatalogs(); await RestartHostAsync(); LoadCatalogs(); await RefreshInstalledAsync(); CleanupTemporaryFiles(false); Render(); });
+            if (IsDisposed || _quitting) return;
             if (_state.Settings.AppAutoCheck && ActivePairing != null) await RefreshAsync(false);
+            if (IsDisposed || _quitting) return;
             ShowManagerUpdateResult();
             if (_state.Settings.ManagerAutoCheck) await CheckManagerUpdateAsync(false);
         };
@@ -290,7 +294,10 @@ internal sealed class MainForm : Form
             _tray.Text = Program.DisplayName + (updates > 0 ? " · 업데이트 " + updates + "개" : "");
         }
         _summary.Text = $"내 프로그램 {_state.Settings.Programs.Count}개   ·   업데이트 {updates}개   ·   {Platforms.Label(Platforms.Current)}   ·   {(_state.Settings.HostEnabled ? "호스트 + 클라이언트" : "클라이언트")}";
-        _connection.Text = _state.Settings.HostEnabled && _state.Pairing is null ? "배포 접속 정보와 연결 코드: 설정 → 호스트 · 배포" : _fingerprint.Length == 0 ? "호스트 연결: 설정 → 클라이언트 · 연결" : $"마지막 목록 확인: {_state.Cache.CheckedUtc.LocalDateTime:g} · 설정 → 클라이언트 · 연결에서 호스트를 확인할 수 있습니다.";
+        _connection.Text = _state.Settings.HostEnabled && _state.Pairing is null ? "배포 접속 정보와 연결 코드: 설정 → 호스트 · 배포"
+            : _fingerprint.Length == 0 ? "호스트 연결: 설정 → 클라이언트 · 연결"
+            : _state.Cache.CheckedUtc == default ? "마지막 목록 확인: 확인 전 · 설정 → 클라이언트 · 연결에서 호스트를 확인할 수 있습니다."
+            : $"마지막 목록 확인: {_state.Cache.CheckedUtc.LocalDateTime:g} · 설정 → 클라이언트 · 연결에서 호스트를 확인할 수 있습니다.";
         _receiveStatus.Text = _state.Pairing is PairingInfo connected ? $"받는 프로그램 · 호스트 {connected.Host}:{connected.Port} · 배포 앱 {_remote.Apps.Count}개\n이 목록은 설치 가능한 앱입니다. 설치하거나 ‘기존 설치 연결’을 해야 내 프로그램과 연결됩니다."
             : _state.Settings.HostEnabled ? $"이 PC에서 배포하는 앱 {_remote.Apps.Count}개 · 여기에서 이 PC에도 설치할 수 있습니다.\n다른 호스트의 목록을 받으려면 ‘연결 설정’을 선택하세요."
             : "다른 PC에서 프로그램 받기\n‘연결 설정’에서 호스트가 생성한 연결 코드를 등록하면 설치할 프로그램 목록이 표시됩니다.";
@@ -373,9 +380,15 @@ internal sealed class MainForm : Form
         var item = Selected<LocalProgram>(_local);
         if (item is null || _busy) return;
         if (MessageBox.Show(this, $"‘{item.Name}’을 관리 목록에서 제거할까요?\n설치된 프로그램과 바로가기 파일은 유지됩니다.", Program.DisplayName, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
-        var before = _state.Settings.Programs.ToList();
-        try { _state.Settings.Programs.Remove(item); _state.Save(); Render(); }
-        catch (Exception ex) { _state.Settings.Programs = before; ShowError(ex); }
+        try
+        {
+            var next = AppState.Clone(_state.Settings);
+            next.Programs.RemoveAll(p => p.Id == item.Id);
+            next.RecentProgramIds.RemoveAll(id => id.Equals(item.Id, StringComparison.OrdinalIgnoreCase));
+            _state.CommitSettings(next);
+            Render();
+        }
+        catch (Exception ex) { ShowError(ex); }
     }
 
     private Task<bool> RefreshLocalAsync() => RunAsync("이 PC의 설치 정보 확인 중…", async _ =>
@@ -390,9 +403,8 @@ internal sealed class MainForm : Form
         return await RunAsync("호스트에서 GitHub 최신 배포 목록 확인 중…", async token =>
         {
             _published = await Task.Run(() => _state.Store.Read(), token);
-            await RefreshInstalledAsync();
             var info = ActivePairing;
-            if (info is null) { Render(); _status.Text = "호스트 미연결 · 설정 → 클라이언트 · 연결에서 호스트가 준 코드를 등록하세요."; return; }
+            if (info is null) { await RefreshInstalledAsync(); Render(); _status.Text = "호스트 미연결 · 설정 → 클라이언트 · 연결에서 호스트가 준 코드를 등록하세요."; return; }
             using var client = new CatalogClient(info);
             var catalog = await client.FetchCatalogAsync(token, refreshCatalog: true);
             _state.Cache = new CachedCatalog { Catalog = catalog, CheckedUtc = DateTimeOffset.UtcNow, Fingerprint = info.Fingerprint };
@@ -550,7 +562,7 @@ internal sealed class MainForm : Form
             {
                 using var client = new CatalogClient(ActivePairing ?? throw new InvalidOperationException("설정에서 호스트 연결 코드를 등록하세요."));
                 var fresh = await client.FetchCatalogAsync(token);
-                var app = fresh.Apps.Single(a => a.Id == selected.Id);
+                var app = fresh.Apps.SingleOrDefault(a => a.Id == selected.Id) ?? throw new InvalidDataException("배포 목록이 변경되어 선택한 프로그램을 찾을 수 없습니다. 목록을 새로고침한 후 다시 확인하세요.");
                 path = await client.DownloadDocumentationAsync(app, _state.Documents, token);
             }
             Dialogs.ShowHtml(this, path);
@@ -654,9 +666,9 @@ internal sealed class MainForm : Form
                 throw new InvalidOperationException("현재 설치된 버전이 배포 버전보다 높습니다. 다운그레이드는 진행하지 않습니다.");
             using var client = new CatalogClient(info);
             var fresh = await client.FetchCatalogAsync(token);
-            var app = fresh.Apps.Single(a => a.Id == selected.Id);
-            var verifiedRelease = app.Releases.Single(r => r.Platform == release.Platform && Platforms.Numeric(r.Version) == Platforms.Numeric(release.Version));
-            if (!SameInstaller(selected, release, app, verifiedRelease)) throw new InvalidDataException("배포 파일 정보가 변경되었습니다. 목록을 새로고침한 후 다시 확인하세요.");
+            var app = fresh.Apps.SingleOrDefault(a => a.Id == selected.Id);
+            var verifiedRelease = app?.Releases.SingleOrDefault(r => r.Platform == release.Platform && Platforms.Numeric(r.Version) == Platforms.Numeric(release.Version));
+            if (app is null || verifiedRelease is null || !SameInstaller(selected, release, app, verifiedRelease)) throw new InvalidDataException("배포 파일 정보가 변경되었습니다. 목록을 새로고침한 후 다시 확인하세요.");
             var package = await client.DownloadAsync(app, verifiedRelease, _state.Downloads, new Progress<int>(p => { _progress.Style = ProgressBarStyle.Continuous; _progress.Value = Math.Max(0, Math.Min(100, p)); }), token);
             token.ThrowIfCancellationRequested();
             _cancel.Visible = false;
@@ -702,9 +714,9 @@ internal sealed class MainForm : Form
             var info = ActivePairing ?? throw new InvalidOperationException("호스트 연결이 필요합니다.");
             using var client = new CatalogClient(info);
             var fresh = await client.FetchCatalogAsync(token);
-            var app = fresh.Apps.Single(a => a.Id == selected.Id);
-            var verifiedRelease = app.Releases.Single(r => r.Platform == release.Platform && Platforms.Numeric(r.Version) == Platforms.Numeric(release.Version));
-            if (!verifiedRelease.IsArchive || !SameInstaller(selected, release, app, verifiedRelease)) throw new InvalidDataException("배포 파일 정보가 변경되었습니다. 목록을 새로고침한 후 다시 확인하세요.");
+            var app = fresh.Apps.SingleOrDefault(a => a.Id == selected.Id);
+            var verifiedRelease = app?.Releases.SingleOrDefault(r => r.Platform == release.Platform && Platforms.Numeric(r.Version) == Platforms.Numeric(release.Version));
+            if (app is null || verifiedRelease is null || !verifiedRelease.IsArchive || !SameInstaller(selected, release, app, verifiedRelease)) throw new InvalidDataException("배포 파일 정보가 변경되었습니다. 목록을 새로고침한 후 다시 확인하세요.");
             var downloads = Path.GetFullPath(downloadsFolder ?? ArchiveDownloads.DownloadsFolder());
             Directory.CreateDirectory(downloads);
             var staging = Path.Combine(downloads, ".program-manager-" + Guid.NewGuid().ToString("N") + ".tmp");
@@ -897,7 +909,8 @@ internal sealed class MainForm : Form
             {
                 var result = await _state.Store.RefreshGitHubAsync(_state.Settings.GitHubRepositories, token).ConfigureAwait(false);
                 var failed = result.Checks.Count(c => c.App is null);
-                if (!IsDisposed && IsHandleCreated) BeginInvoke(new Action(() => { if (!IsDisposed) { LoadCatalogs(); Render(); } }));
+                try { if (!IsDisposed && IsHandleCreated) BeginInvoke(new Action(() => { if (!IsDisposed) { LoadCatalogs(); Render(); } })); }
+                catch (Exception ex) when (ex is ObjectDisposedException or InvalidOperationException) { }
                 return failed == 0 ? "" : $"GitHub 확인 실패 {failed}개 · 해당 앱은 이전 배포 정보를 유지했습니다. 호스트에서 GitHub 설정을 확인하세요.";
             }
         };
@@ -941,7 +954,12 @@ internal sealed class MainForm : Form
     private void ShowManager() { Show(); WindowState = FormWindowState.Normal; Activate(); }
     private void ShowHelp()
     {
-        try { Dialogs.ShowHtml(this, Path.Combine(AppContext.BaseDirectory, "guide.html"), new[] { "launch", "client", "host" }[_tabs.SelectedIndex]); }
+        try
+        {
+            var sections = new[] { "launch", "client", "host" };
+            var section = _tabs.SelectedIndex >= 0 && _tabs.SelectedIndex < sections.Length ? sections[_tabs.SelectedIndex] : "launch";
+            Dialogs.ShowHtml(this, Path.Combine(AppContext.BaseDirectory, "guide.html"), section);
+        }
         catch (Exception ex) { ShowError(ex); }
     }
     protected override void WndProc(ref Message m)
@@ -951,8 +969,24 @@ internal sealed class MainForm : Form
     }
     protected override void Dispose(bool disposing)
     {
-        if (disposing) _hostPage.Dispose();
-        if (disposing) { _managerTimer.Dispose(); _managerLifetime.Cancel(); _cacheTimer.Dispose(); _tray.Visible = false; _tray.ContextMenuStrip?.Dispose(); _tray.Dispose(); _appUpdateIcon.Dispose(); _server?.Dispose(); _managerUpdater.Dispose(); _identity?.Dispose(); _githubApi?.Dispose(); }
+        if (disposing)
+        {
+            _operation?.Cancel();
+            _hostPage.Dispose();
+            _managerTimer.Dispose();
+            _managerLifetime.Cancel();
+            _cacheTimer.Dispose();
+            _tray.Visible = false;
+            _tray.ContextMenuStrip?.Dispose();
+            _tray.Dispose();
+            _appUpdateIcon.Dispose();
+            _server?.Dispose();
+            _managerUpdater.Dispose();
+            _managerLifetime.Dispose();
+            _identity?.Dispose();
+            _githubApi?.Dispose();
+        }
         base.Dispose(disposing);
+        if (disposing) _ownedIcon?.Dispose();
     }
 }

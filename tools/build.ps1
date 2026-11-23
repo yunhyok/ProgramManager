@@ -5,6 +5,13 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $projectPath = Join-Path $repoRoot 'src\ProgramManager\ProgramManager.csproj'
 $publishRoot = Join-Path $repoRoot 'artifacts\publish'
+[xml]$projectXml = Get-Content -LiteralPath $projectPath -Raw -Encoding utf8
+$version = [string]$projectXml.SelectSingleNode('/Project/PropertyGroup/Version').InnerText
+if ($version -notmatch '^\d+\.\d+\.\d+(?:\.\d+)?$') { throw "Invalid project version: $version" }
+$manifestVersion = if (($version -split '\.').Count -eq 3) { "$version.0" } else { $version }
+if ((Get-Content -LiteralPath (Join-Path $repoRoot 'src\ProgramManager\Program.cs') -Raw -Encoding utf8) -notmatch ('Version = "' + [regex]::Escape($version) + '"')) { throw "Program.cs version does not match $version." }
+if ((Get-Content -LiteralPath (Join-Path $repoRoot 'src\ProgramManager\app.manifest') -Raw -Encoding utf8) -notmatch ('version="' + [regex]::Escape($manifestVersion) + '"')) { throw "app.manifest version does not match $manifestVersion." }
+if ((Get-Content -LiteralPath (Join-Path $repoRoot 'tests\ProgramManager.DesktopChecks\UiProgramStub.cs') -Raw -Encoding utf8) -notmatch ('Version = "' + [regex]::Escape($version) + '"')) { throw "UiProgramStub.cs version does not match $version." }
 
 if (!$InnoCompiler) {
     $candidates = @(
@@ -55,13 +62,13 @@ try {
         }
     }
 
-    & $InnoCompiler (Join-Path $repoRoot 'installer\ProgramManager.iss')
+    & $InnoCompiler "/DAppVersion=$version" (Join-Path $repoRoot 'installer\ProgramManager.iss')
     if ($LASTEXITCODE -ne 0) { throw 'Windows 10/11 installer compilation failed.' }
-    & $InnoCompiler '/DLegacy' (Join-Path $repoRoot 'installer\ProgramManager.iss')
+    & $InnoCompiler '/DLegacy' "/DAppVersion=$version" (Join-Path $repoRoot 'installer\ProgramManager.iss')
     if ($LASTEXITCODE -ne 0) { throw 'Windows 7 installer compilation failed.' }
 
     $installerRoot = Join-Path $repoRoot 'artifacts\installers'
-    $installers = @('ProgramManager-Setup-0.5.2.exe', 'ProgramManager-Setup-0.5.2-win7.exe')
+    $installers = @("ProgramManager-Setup-$version.exe", "ProgramManager-Setup-$version-win7.exe")
     $hashes = foreach ($name in $installers) {
         $file = Get-Item -LiteralPath (Join-Path $installerRoot $name)
         if ($file.Length -eq 0) { throw "Installer is empty: $name" }
@@ -69,7 +76,7 @@ try {
         '{0}  {1}' -f $hash.Hash.ToLowerInvariant(), $file.Name
     }
     $hashes | Set-Content -LiteralPath (Join-Path $installerRoot 'SHA256SUMS.txt') -Encoding ascii
-    Write-Host "Program Manager 0.5.2 installers: $installerRoot"
+    Write-Host "Program Manager $version installers: $installerRoot"
 } finally {
     Pop-Location
 }

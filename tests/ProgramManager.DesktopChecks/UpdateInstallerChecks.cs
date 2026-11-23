@@ -43,19 +43,24 @@ internal static class UpdateInstallerChecks
 
         // Exercise a real Inno executable when release artifacts are available; never execute it.
         var repository = FindRepository();
-        var existing = repository == null ? null : Path.Combine(repository, "artifacts", "installers", "ProgramManager-Setup-0.2.2-win7.exe");
-        if (existing != null && File.Exists(existing))
+        var installerFolder = repository == null ? null : Path.Combine(repository, "artifacts", "installers");
+        var existing = installerFolder != null && Directory.Exists(installerFolder)
+            ? Directory.GetFiles(installerFolder, "ProgramManager-Setup-*.exe").FirstOrDefault()
+            : null;
+        if (existing != null)
         {
+            var versionMatch = System.Text.RegularExpressions.Regex.Match(Path.GetFileName(existing), @"\AProgramManager-Setup-([0-9]+(?:\.[0-9]+){1,3})(?:-win7)?\.exe\z");
+            var existingVersion = versionMatch.Groups[1].Value;
             File.Copy(existing, installer);
             using var image = new FileStream(installer, FileMode.Open, FileAccess.Read, FileShare.Read);
             var hash = Hash(image);
-            UpdateInstaller.ValidateInstaller(image, hash.ToLowerInvariant(), "0.2.2");
-            Reject(() => UpdateInstaller.ValidateInstaller(image, new string('0', 64), "0.2.2"), "corrupt digest rejected");
-            Reject(() => UpdateInstaller.ValidateInstaller(image, hash, "0.3.0"), "different product version rejected");
-            Reject(() => UpdateInstaller.ValidateInstaller(image, "not-a-hash", "0.2.2"), "invalid digest metadata rejected");
+            UpdateInstaller.ValidateInstaller(image, hash.ToLowerInvariant(), existingVersion);
+            Reject(() => UpdateInstaller.ValidateInstaller(image, new string('0', 64), existingVersion), "corrupt digest rejected");
+            Reject(() => UpdateInstaller.ValidateInstaller(image, hash, "99.0.0"), "different product version rejected");
+            Reject(() => UpdateInstaller.ValidateInstaller(image, "not-a-hash", existingVersion), "invalid digest metadata rejected");
             Reject(() => new FileStream(installer, FileMode.Open, FileAccess.Write, FileShare.ReadWrite).Dispose(), "verification lease prevents file mutation");
         }
-        else Console.WriteLine("SKIP: existing 0.2.2 Inno artifact is not available for resource verification");
+        else Console.WriteLine("SKIP: no built Inno artifact in artifacts/installers for resource verification");
 
         Directory.CreateDirectory(data);
         var resultPath = Path.Combine(data, UpdateInstaller.ResultFileName);

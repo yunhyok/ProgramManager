@@ -100,6 +100,11 @@ internal static class GitHubChecks
         await GracefulDisposeAsync();
         var outside = Path.Combine(root, "keep.txt"); File.WriteAllText(outside, "keep"); store.ClearCache();
         Check(File.ReadAllText(outside) == "keep", "cache cleanup confined to host temp");
+        source.WrongSize = false; source.ControlAndLongNotes = true;
+        var sanitized = (await store.RefreshGitHubAsync(selected)).Catalog.Apps.Single();
+        var latestNotes = sanitized.Latest!.Notes;
+        Check(!sanitized.Description.Contains('\x1b') && !latestNotes.Contains('\x1b') && !latestNotes.Contains('\x0c'), "control chars in GitHub metadata are sanitized");
+        _ = new UTF8Encoding(false, true).GetBytes(latestNotes);
         Console.WriteLine("GitHub metadata, selection, lazy cache, integrity, offline HTML, redirect and graceful disposal checks passed.");
     }
 
@@ -314,7 +319,7 @@ internal static class GitHubChecks
     {
         public readonly byte[] Package = Encoding.UTF8.GetBytes("fixture installer binary");
         public int AssetRequests, ReadmeRequests;
-        public bool Ambiguous, WrongSize, BlockDownloads;
+        public bool Ambiguous, WrongSize, BlockDownloads, ControlAndLongNotes;
         public readonly TaskCompletionSource<bool> DownloadStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public bool Legacy = true;
         public string Digest = "";
@@ -325,13 +330,14 @@ internal static class GitHubChecks
             object payload;
             if (path == "/user") payload = new { login = "owner" };
             else if (path == "/user/repos") payload = new[] { new { full_name = "owner/program", description = "Private example", @private = true } };
-            else if (path == "/repos/owner/program") payload = new { full_name = "owner/program", description = "Private example", @private = true };
+            else if (path == "/repos/owner/program") payload = new { full_name = "owner/program", description = ControlAndLongNotes ? "Private \x1b[31mexample\x00" : "Private example", @private = true };
             else if (path == "/repos/owner/program/releases")
             {
                 var assets = new List<object> { new { id = 10, name = "Program-Setup.exe", size = Package.Length, digest = Digest == "" ? null : "sha256:" + Digest } };
                 if (Legacy) assets.Add(new { id = 11, name = "Program-Setup-win7-x86.exe", size = Package.Length, digest = (string?)null });
                 if (Ambiguous) assets.Add(new { id = 12, name = "Alternate-Setup.exe", size = Package.Length, digest = (string?)null });
-                payload = new[] { new { draft = false, prerelease = false, tag_name = "v1.2.0", body = "# Changes\nNew version <img src=https://example.com/tracker>", published_at = "2026-09-10T00:00:00Z", assets } };
+                var body = ControlAndLongNotes ? "\x1b[32mChanges\x0c\n" + new string('a', 29970) + "🚀" + new string('b', 100) : "# Changes\nNew version <img src=https://example.com/tracker>";
+                payload = new[] { new { draft = false, prerelease = false, tag_name = "v1.2.0", body, published_at = "2026-09-10T00:00:00Z", assets } };
             }
             else if (path == "/repos/owner/program/readme")
             {

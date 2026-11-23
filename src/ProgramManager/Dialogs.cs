@@ -20,7 +20,7 @@ internal static class Dialogs
         browser.NewWindow += (_, e) => e.Cancel = true;
         void FitDocument()
         {
-            if (browser.Document?.Body is not { } body) return;
+            if (form.IsDisposed || browser.Document?.Body is not { } body) return;
             using var graphics = form.CreateGraphics();
             var scale = graphics.DpiX / 96 * form.Font.Size / 10;
             var width = Math.Max(1, Math.Floor((browser.ClientSize.Width - SystemInformation.VerticalScrollBarWidth) / scale));
@@ -138,16 +138,17 @@ internal static class Dialogs
         var version = form.TextField("설치된 버전", release?.Version ?? item?.InstalledVersion ?? "");
         path.TextChanged += (_, _) =>
         {
-            if (string.IsNullOrWhiteSpace(name.Text)) name.Text = Path.GetFileNameWithoutExtension(path.Text);
-            if (string.IsNullOrWhiteSpace(version.Text) && File.Exists(path.Text) && Path.GetExtension(path.Text).Equals(".exe", StringComparison.OrdinalIgnoreCase))
+            try
             {
-                try
+                var candidate = path.Text.Trim().Trim('"');
+                if (string.IsNullOrWhiteSpace(name.Text) && candidate.Length > 0) name.Text = Path.GetFileNameWithoutExtension(candidate);
+                if (string.IsNullOrWhiteSpace(version.Text) && File.Exists(candidate) && Path.GetExtension(candidate).Equals(".exe", StringComparison.OrdinalIgnoreCase))
                 {
-                    var info = FileVersionInfo.GetVersionInfo(path.Text);
+                    var info = FileVersionInfo.GetVersionInfo(candidate);
                     if (info.FileMajorPart > 0 || info.FileMinorPart > 0) version.Text = $"{info.FileMajorPart}.{info.FileMinorPart}.{info.FileBuildPart}";
                 }
-                catch { /* Optional file metadata does not affect launch registration. */ }
             }
+            catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException) { /* Optional preview metadata; net48 throws on invalid path chars while typing. */ }
         };
         form.Row("안내", new Label { AutoSize = true, MaximumSize = new Size(410, 0), Text = guidance ?? (release is null ? "버전을 모르면 비워 두세요. 바로가기는 Manager 폴더에 복사해 보관합니다. 등록 후 실행을 확인했다면 바탕화면 바로가기를 정리해도 됩니다." : "설치 프로그램에서 설치가 완료되었는지 확인한 뒤, 설치된 프로그램의 실행 파일을 선택하세요. 저장할 때 이 버전을 설치 완료로 기록합니다.") });
         LocalProgram? result = null;
@@ -271,8 +272,13 @@ internal static class Dialogs
             incoming.Clear(); disconnect.Checked = false; RefreshCurrent();
             var code = createCode();
             var catalog = await ConnectionSettings.CheckAsync(code, token);
-            outgoing.Text = code; Clipboard.SetText(code);
-            status.Text = $"호스트 접속 확인 완료 · 배포 앱 {catalog.Apps.Count}개 · 연결 코드를 복사했습니다. 받는 PC의 클라이언트 탭에 붙여 넣으세요.";
+            outgoing.Text = code;
+            var copied = true;
+            try { Clipboard.SetDataObject(code, true, 5, 50); }
+            catch (System.Runtime.InteropServices.ExternalException) { copied = false; }
+            status.Text = copied
+                ? $"호스트 접속 확인 완료 · 배포 앱 {catalog.Apps.Count}개 · 연결 코드를 복사했습니다. 받는 PC의 클라이언트 탭에 붙여 넣으세요."
+                : $"호스트 접속 확인 완료 · 배포 앱 {catalog.Apps.Count}개 · 클립보드 복사에 실패했습니다. 위 연결 코드를 직접 복사하세요.";
             RefreshCurrent();
         }));
         generate.Name = "GenerateConnectionCode";

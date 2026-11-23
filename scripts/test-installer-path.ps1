@@ -1,7 +1,8 @@
-param([Parameter(Mandatory=$true)][string]$Installer)
+﻿param([Parameter(Mandatory=$true)][string]$Installer)
 $ErrorActionPreference = 'Stop'
 $Installer = (Resolve-Path -LiteralPath $Installer).Path
-$root = Join-Path $env:RUNNER_TEMP ('installer-path-' + [Guid]::NewGuid().ToString('N'))
+$tempBase = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { [IO.Path]::GetTempPath() }
+$root = Join-Path $tempBase ('installer-path-' + [Guid]::NewGuid().ToString('N'))
 $target = Join-Path $root 'custom folder 한글'
 New-Item -ItemType Directory -Path $target -Force | Out-Null
 $marker = Join-Path $target 'preserved-user-setting.txt'

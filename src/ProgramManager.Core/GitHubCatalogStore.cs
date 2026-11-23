@@ -146,7 +146,9 @@ public sealed partial class CatalogStore
                     var asset = SelectAsset(release, platform, pattern, info.FullName);
                     if (asset is null || !versions.Add(release.Version + "/" + platform)) continue;
                     var notes = release.Prerelease ? "시험판 · " + release.Tag + "\n" + release.Notes : release.Notes;
-                    app.Releases.Add(new AppRelease { Platform = platform, Version = release.Version, Notes = notes.Substring(0, Math.Min(notes.Length, 30000)), FileName = asset.Name, Sha256 = asset.Sha256, Size = asset.Size, PublishedUtc = release.PublishedUtc, GitHubAssetId = asset.Id, GitHubTag = release.Tag, IsPrerelease = release.Prerelease });
+                    var notesLength = Math.Min(notes.Length, 30000);
+                    if (notesLength > 0 && notesLength < notes.Length && char.IsHighSurrogate(notes[notesLength - 1])) notesLength--;
+                    app.Releases.Add(new AppRelease { Platform = platform, Version = release.Version, Notes = notes.Substring(0, notesLength), FileName = asset.Name, Sha256 = asset.Sha256, Size = asset.Size, PublishedUtc = release.PublishedUtc, GitHubAssetId = asset.Id, GitHubTag = release.Tag, IsPrerelease = release.Prerelease });
                 }
             }
             if (app.Releases.Count == 0) throw new InvalidDataException(info.FullName + ": " + UnavailableReason(releases, eligible, selection));
@@ -218,19 +220,29 @@ public sealed partial class CatalogStore
         {
             EnsureCache();
             var hash = "";
+            var hasCached = false;
             lock (cacheLock)
             {
                 downloads.Add(path);
                 if (File.Exists(path) && File.Exists(path + ".sha256"))
                 {
                     RejectLink(path); RejectLink(path + ".sha256");
-                    using (var cached = File.OpenRead(path)) hash = cached.Length == release.Size ? Compat.Hash(cached, token) : "";
-                    var recorded = new FileInfo(path + ".sha256").Length == 64 ? File.ReadAllText(path + ".sha256") : "";
-                    if (hash == "" || !hash.Equals(recorded, StringComparison.OrdinalIgnoreCase) || (release.Sha256 != "" && !hash.Equals(release.Sha256, StringComparison.OrdinalIgnoreCase)))
+                    hasCached = true;
+                }
+            }
+            if (hasCached)
+            {
+                // gate serializes this key and downloads protects path from CleanupCache; hash outside cacheLock.
+                using (var cached = File.OpenRead(path)) hash = cached.Length == release.Size ? Compat.Hash(cached, token) : "";
+                var recorded = new FileInfo(path + ".sha256").Length == 64 ? File.ReadAllText(path + ".sha256") : "";
+                if (hash == "" || !hash.Equals(recorded, StringComparison.OrdinalIgnoreCase) || (release.Sha256 != "" && !hash.Equals(release.Sha256, StringComparison.OrdinalIgnoreCase)))
+                {
+                    lock (cacheLock)
                     {
                         if (leases.ContainsKey(path)) throw new InvalidDataException("사용 중인 캐시 파일이 변경되었습니다. 전송 완료 후 다시 시도하세요.");
-                        File.Delete(path); File.Delete(path + ".sha256"); hash = "";
+                        File.Delete(path); File.Delete(path + ".sha256");
                     }
+                    hash = "";
                 }
             }
             if (hash == "")
@@ -315,7 +327,7 @@ public sealed partial class CatalogStore
             foreach (var path in Directory.GetFiles(CacheRoot))
             {
                 if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0 || File.GetLastWriteTimeUtc(path) > cutoff) continue;
-                if (leases.Keys.Any(active => path == active || path.StartsWith(active + ".", StringComparison.OrdinalIgnoreCase)) || downloads.Any(active => path == active || path.StartsWith(active + ".", StringComparison.OrdinalIgnoreCase))) continue;
+                if (leases.Keys.Any(active => string.Equals(path, active, StringComparison.OrdinalIgnoreCase) || path.StartsWith(active + ".", StringComparison.OrdinalIgnoreCase)) || downloads.Any(active => string.Equals(path, active, StringComparison.OrdinalIgnoreCase) || path.StartsWith(active + ".", StringComparison.OrdinalIgnoreCase))) continue;
                 try { File.Delete(path); } catch (IOException) { } catch (UnauthorizedAccessException) { }
             }
         }

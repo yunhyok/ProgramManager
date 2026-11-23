@@ -55,7 +55,7 @@ public sealed partial class CatalogStore
             app.Releases.Add(new AppRelease { Version = version, Platform = platform, Notes = notes, FileName = fileName, Size = size, Sha256 = hash, PublishedUtc = DateTimeOffset.UtcNow });
             if (!catalog.Apps.Contains(app)) catalog.Apps.Add(app);
             CatalogRules.Validate(catalog);
-            File.Move(temporary, packagePath);
+            Compat.Replace(temporary, packagePath);
             moved = true;
             JsonFiles.Write(CatalogPath, catalog);
             return catalog;

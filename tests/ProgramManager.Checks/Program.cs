@@ -80,6 +80,11 @@ internal static class Program
         var modernPath = store.GetPackagePath("sample-app", "1.10");
         var legacyPath = store.GetPackagePath("sample-app", "1.10.0.0", "win7");
         Assert(modernPath != legacyPath && File.ReadAllBytes(legacyPath).SequenceEqual(File.ReadAllBytes(win7)), "platform package isolation");
+        var orphanFolder = Path.Combine(root, "host", "packages", "sample-app", "1.11", "win10-x64");
+        Directory.CreateDirectory(orphanFolder);
+        File.WriteAllBytes(Path.Combine(orphanFolder, "installer.exe"), new byte[] { 0xde, 0xad });
+        await store.PublishAsync("sample-app", "Example", "description", "1.11", "orphan recovery", original);
+        Assert(File.ReadAllBytes(store.GetPackagePath("sample-app", "1.11")).SequenceEqual(File.ReadAllBytes(original)), "publish replaces orphaned package file");
         var originalCatalog = File.ReadAllText(Path.Combine(root, "host", "catalog.json"));
         await Reject(() => store.PublishAsync("sample-app", "changed", "", "1.10.0.0", "duplicate", win7), "normalized duplicate");
         Assert(originalCatalog == File.ReadAllText(Path.Combine(root, "host", "catalog.json")), "duplicate leaves catalog untouched");
@@ -115,7 +120,7 @@ internal static class Program
         await server.StartAsync(info.Port);
         using var client = new CatalogClient(info);
         var fetched = await client.FetchCatalogAsync();
-        Assert(fetched.Apps[0].Releases.Count == 3, "TLS catalog read");
+        Assert(fetched.Apps[0].Releases.Count == 4, "TLS catalog read");
         var app = fetched.Apps[0]; var release = app.Releases.Single(r => r.Version == "1.10" && r.Platform == "win10-x64");
         var destination = Path.Combine(root, "downloads");
         var downloaded = await client.DownloadAsync(app, release, destination);

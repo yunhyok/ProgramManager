@@ -118,6 +118,10 @@ internal static class DesktopCheckRunner
         search.Text = "missing"; Assert(!install.Enabled, "empty search disables install");
         search.Clear(); Assert(install.Enabled, "clearing search restores install");
         app.Releases.Clear(); render.Invoke(form, null); Assert(!install.Enabled, "missing installer stays disabled");
+        typeof(MainForm).GetField("_fingerprint", flags)!.SetValue(form, new string('A', 64));
+        render.Invoke(form, null);
+        var connection = (Label)typeof(MainForm).GetField("_connection", flags)!.GetValue(form)!;
+        Assert(!connection.Text.Contains("0001") && connection.Text.Contains("확인 전"), "unchecked cache avoids 0001-01-01 timestamp");
         Console.WriteLine("PASS: client-only UI, role changes, and install action recovery after refresh/failure/filter/platform changes");
     }
 
@@ -357,6 +361,10 @@ internal static class DesktopCheckRunner
         Reject(() => new AppState(appRoot), "null persisted local path");
         var versions = new CatalogApp { Releases = [new AppRelease { Version = "1.9", Platform = "win7" }, new AppRelease { Version = "1.10.0", Platform = "win7" }, new AppRelease { Version = "2.0", Platform = "win10-x64" }] };
         Assert(Platforms.Latest(versions, Platforms.Legacy)!.Version == "1.10.0" && Platforms.Latest(versions, Platforms.Modern)!.Version == "2.0", "target-specific numeric latest");
+        Reject(() => Platforms.Numeric("v1.2.3"), "non-numeric version rejected with localized InvalidDataException");
+        Reject(() => Platforms.Numeric("+1.+2"), "signed version rejected consistently with CatalogRules");
+        invalid = Clone(load.Settings); invalid.GitHubOwner = "-leading-dash";
+        Reject(() => load.CommitSettings(invalid), "GitHub owner leading dash rejected");
     }
 
     private static void CheckGitHubSelection()

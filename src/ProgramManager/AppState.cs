@@ -183,7 +183,7 @@ public sealed class AppState
             new PairingInfo { Host = settings.AdvertisedHost, Port = settings.Port, Fingerprint = new string('0', 64), Token = new string('0', 64) }.Validate();
             CatalogRules.Text(settings.PairingProtected, 20000);
             CatalogRules.Text(settings.GitHubOwner, 100);
-            if (settings.GitHubOwner.Length > 0 && !Regex.IsMatch(settings.GitHubOwner, "\\A[a-zA-Z0-9-]{1,39}\\z")) throw new InvalidDataException("GitHub 계정 이름을 확인하세요.");
+            if (settings.GitHubOwner.Length > 0 && !Regex.IsMatch(settings.GitHubOwner, "\\A[A-Za-z0-9][A-Za-z0-9-]{0,38}\\z")) throw new InvalidDataException("GitHub 계정 이름을 확인하세요.");
             CatalogRules.Text(settings.GitHubTokenProtected, 20000);
             if (settings.CacheRetentionDays is < 1 or > 30 || settings.GitHubRepositories is null || settings.GitHubRepositories.Count > 200) throw new InvalidDataException("캐시 보관 기간 또는 GitHub 저장소 목록이 올바르지 않습니다.");
             foreach (var source in settings.GitHubRepositories) (source ?? throw new InvalidDataException("저장소 정보가 비어 있습니다.")).Validate();
@@ -254,10 +254,6 @@ internal static class Platforms
     public const string Legacy = "win7";
     public static string Current => Environment.OSVersion.Version.Major >= 10 && Environment.Is64BitOperatingSystem ? Modern : Legacy;
     public static string Label(string platform) => platform == Modern ? "Windows 10/11 (64비트)" : "Windows 7/8 (32·64비트)";
-    public static Version Numeric(string version)
-    {
-        var value = Version.Parse(version);
-        return new Version(value.Major, value.Minor, Math.Max(0, value.Build), Math.Max(0, value.Revision));
-    }
+    public static Version Numeric(string version) => CatalogRules.Version(version);
     public static AppRelease? Latest(CatalogApp app, string platform) => app.Releases.Where(r => r.Platform == platform).OrderByDescending(r => Numeric(r.Version)).FirstOrDefault();
 }

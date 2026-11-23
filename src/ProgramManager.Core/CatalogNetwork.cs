@@ -261,10 +261,11 @@ public sealed class CatalogServer : IDisposable
         Task[] active;
         lock (handlers) active = handlers.ToArray();
         await Task.WhenAll(active).ConfigureAwait(false);
+        lock (handlers) handlers.Clear();
         lifetime?.Dispose(); lifetime = null; listener = null; accepting = null;
     }
 
-    public void Dispose() => StopAsync().GetAwaiter().GetResult();
+    public void Dispose() { StopAsync().GetAwaiter().GetResult(); slots.Dispose(); }
 }
 
 public sealed class CatalogClient : IDisposable

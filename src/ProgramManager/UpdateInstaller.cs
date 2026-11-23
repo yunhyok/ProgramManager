@@ -170,7 +170,7 @@ public static class UpdateInstaller
         var temp = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
-            File.WriteAllText(temp, "[Update]\r\nStatus=pending\r\nVersion=" + NormalizeVersion(version).ToString(3) +
+            File.WriteAllText(temp, "[Update]\r\nStatus=pending\r\nVersion=" + CatalogRules.NormalizeVersion(version) +
                 "\r\nLogPath=" + Path.Combine(directory, LogFileName) + "\r\nMessage=업데이트 설치가 시작되었습니다.\r\n", new UTF8Encoding(true));
             Compat.Replace(temp, path);
         }

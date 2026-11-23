@@ -233,7 +233,15 @@ public sealed class GitHubApi : IDisposable
     private static Uri ApiUri(string route) => new("https://api.github.com/" + route);
     private static CancellationTokenSource Deadline(CancellationToken token, TimeSpan timeout) { var source = CancellationTokenSource.CreateLinkedTokenSource(token); source.CancelAfter(timeout); return source; }
     private static string Text(JsonElement item, string key) => item.TryGetProperty(key, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString()! : "";
-    private static string Limited(string value, int maximum) => value.Length <= maximum ? value : value.Substring(0, maximum - 20) + "\n[긴 내용 일부 생략]";
+    private static string Limited(string value, int maximum)
+    {
+        if (value.Any(c => char.IsControl(c) && c != '\r' && c != '\n' && c != '\t'))
+            value = new string(value.Where(c => !char.IsControl(c) || c is '\r' or '\n' or '\t').ToArray());
+        if (value.Length <= maximum) return value;
+        var cut = maximum - 20;
+        if (cut > 0 && char.IsHighSurrogate(value[cut - 1])) cut--;
+        return value.Substring(0, cut) + "\n[긴 내용 일부 생략]";
+    }
     private static void EnsureSuccess(HttpResponseMessage response)
     {
         if (response.IsSuccessStatusCode) return;
